@@ -9,7 +9,7 @@ export default defineConfig({
     port: process.env.PORT || 3000,
     strictPort: false,
     allowedHosts: [
-      'hakathon-demo.onrender.com',
+      'hackathon-demo.onrender.com',
       '.onrender.com'
     ],
     hmr: {
