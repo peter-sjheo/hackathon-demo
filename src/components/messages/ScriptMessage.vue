@@ -591,7 +591,7 @@ onUnmounted(() => {
 
 <style scoped>
 .script-message {
-  max-width: 550px;
+  max-width: 700px;
   background: white;
   border-radius: 12px;
   overflow: hidden;

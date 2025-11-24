@@ -131,7 +131,8 @@ watch(() => props.location, (newLocation) => {
 
 <style scoped>
 .map-message {
-  width: 350px;
+  width: 100%;
+  max-width: 500px;
   border-radius: 12px;
   overflow: hidden;
   background: white;

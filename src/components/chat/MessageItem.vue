@@ -7,6 +7,8 @@
         v-bind="messageProps"
         @action="handleAction"
         @update:categories="handleUpdateCategories"
+        @confirm="handleChecklistConfirm"
+        @marketingConsent="handleMarketingConsent"
       />
     </div>
     <!-- 메시지 전송 시간 -->
@@ -35,7 +37,7 @@ const props = defineProps({
 })
 
 // Events 정의
-const emit = defineEmits(['action', 'updateMessage'])
+const emit = defineEmits(['action', 'updateMessage', 'checklistConfirm'])
 
 // ActionButtonsMessage에서 발생한 action 이벤트를 부모로 전달
 const handleAction = (actionData) => {
@@ -50,6 +52,21 @@ const handleUpdateCategories = (updatedCategories) => {
     id: props.message.id,
     content: updatedCategories
   })
+}
+
+// DocumentChecklist에서 발생한 confirm 이벤트 처리
+const handleChecklistConfirm = (data) => {
+  console.log('MessageItem - handleChecklistConfirm called:', data)
+  emit('checklistConfirm', {
+    messageId: props.message.id,
+    marketingConsent: data.marketingConsent
+  })
+}
+
+// DocumentChecklist에서 발생한 marketingConsent 이벤트 처리 (실시간 업데이트용)
+const handleMarketingConsent = (consent) => {
+  // 실시간으로 마케팅 동의 상태 저장 (필요시)
+  console.log('MessageItem - marketingConsent:', consent)
 }
 
 // 메시지 타입에 따라 적절한 컴포넌트 선택
@@ -148,7 +165,7 @@ const formattedTime = computed(() => {
 }
 
 .message-bubble {
-  max-width: 70%;
+  max-width: 85%;
   border-radius: 12px;
 }
 

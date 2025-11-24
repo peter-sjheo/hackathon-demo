@@ -10,6 +10,10 @@
           <h2>해외여행보험 청구 도우미</h2>
           <p class="subtitle">Claim Helper Chatbot</p>
         </div>
+        <button class="dashboard-button" @click="handleGoToDashboard">
+          <span class="button-icon">←</span>
+          <span class="button-text">대시보드로 가기</span>
+        </button>
       </div>
     </div>
 
@@ -29,6 +33,7 @@
         :message="message"
         @action="handleActionClick"
         @updateMessage="handleUpdateMessage"
+        @checklistConfirm="handleChecklistConfirm"
       />
 
       <!-- 로딩 인디케이터 -->
@@ -100,7 +105,12 @@ const CONSTANTS = {
 }
 
 // Events 정의
-const emit = defineEmits(['progressUpdate', 'checklistComplete'])
+const emit = defineEmits(['progressUpdate', 'checklistComplete', 'goToDashboard'])
+
+// 대시보드로 이동
+const handleGoToDashboard = () => {
+  emit('goToDashboard')
+}
 
 // ChatGPT 연동 composable 사용
 const { messages, isLoading, error, sendMessageStream } = useChat()
@@ -584,12 +594,20 @@ const handleActionClick = async (actionData) => {
             })
           }
 
-          // 귀국 서류 보기 버튼
+          // 귀국 서류 보기 버튼과 스킵 옵션
           actions.push({
             label: '귀국 서류를 보여드릴까요?',
             icon: '🏠',
             action: 'show_home_docs',
             style: 'info',
+            data: { coverageType }
+          })
+
+          actions.push({
+            label: '아니요, 괜찮아요',
+            icon: '👍',
+            action: 'skip_to_checklist',
+            style: 'secondary',
             data: { coverageType }
           })
 
@@ -615,6 +633,9 @@ const handleActionClick = async (actionData) => {
         const { coverageType } = actionData.data
         const documentsData = CLAIM_DOCUMENTS[coverageType]
 
+        // 프로그레스 3단계로 업데이트 (서류 발급)
+        emit('progressUpdate', 3)
+
         // 귀국 서류 리스트 표시
         const homeDocsMessage = {
           id: Date.now(),
@@ -630,28 +651,103 @@ const handleActionClick = async (actionData) => {
         messages.value.push(homeDocsMessage)
         await scrollToBottom()
 
-        // 상담원 연결 옵션 (2초 후)
+        // 서류 확인 옵션 (2초 후)
         setTimeout(async () => {
-          const contactMessage = {
+          const checkQuestion = {
             id: Date.now(),
-            type: 'action_buttons',
+            type: 'text',
             sender: 'bot',
-            content: {
-              message: '더 궁금한 점이 있으시면 언제든 문의해 주세요!',
-              actions: [
-                {
-                  label: '상담원 연결',
-                  icon: '☎️',
-                  action: 'call_agent',
-                  style: 'secondary'
-                }
-              ]
-            },
+            content: '서류를 잘 발급받으셨나요? 📋',
             timestamp: Date.now()
           }
-          messages.value.push(contactMessage)
+          messages.value.push(checkQuestion)
           await scrollToBottom()
+
+          // 체크리스트 보기 버튼 (2초 후)
+          setTimeout(async () => {
+            const checklistButton = {
+              id: Date.now(),
+              type: 'action_buttons',
+              sender: 'bot',
+              content: {
+                message: '서류 체크리스트를 보여드릴까요?',
+                actions: [
+                  {
+                    label: '✅ 네, 체크리스트 보기',
+                    icon: '📋',
+                    action: 'show_checklist',
+                    style: 'primary',
+                    data: { coverageType }
+                  },
+                  {
+                    label: '⏳ 아직 준비 중이에요',
+                    icon: '⏳',
+                    action: 'documents_pending',
+                    style: 'secondary'
+                  }
+                ]
+              },
+              timestamp: Date.now()
+            }
+            messages.value.push(checklistButton)
+            await scrollToBottom()
+          }, 2000)
         }, 2000)
+      }
+      break
+
+    case 'skip_to_checklist':
+      // "아니요, 괜찮아요" - 귀국 서류 건너뛰고 서류 확인으로
+      {
+        const { coverageType } = actionData.data || {}
+        
+        // 프로그레스 3단계로 업데이트 (서류 발급)
+        emit('progressUpdate', 3)
+
+        // 서류 발급 확인 메시지
+        setTimeout(async () => {
+          const checkQuestion = {
+            id: Date.now(),
+            type: 'text',
+            sender: 'bot',
+            content: '서류를 잘 발급받으셨나요? 📋',
+            timestamp: Date.now()
+          }
+          messages.value.push(checkQuestion)
+          await scrollToBottom()
+
+          // 체크리스트 보기 버튼 (2초 후)
+          setTimeout(async () => {
+            const checklistButton = {
+              id: Date.now(),
+              type: 'action_buttons',
+              sender: 'bot',
+              content: {
+                message: '서류 체크리스트를 보여드릴까요?',
+                actions: [
+                  {
+                    label: '✅ 네, 체크리스트 보기',
+                    icon: '📋',
+                    action: 'show_checklist',
+                    style: 'primary',
+                    data: {
+                      coverageType: coverageType
+                    }
+                  },
+                  {
+                    label: '⏳ 아직 준비 중이에요',
+                    icon: '⏳',
+                    action: 'documents_pending',
+                    style: 'secondary'
+                  }
+                ]
+              },
+              timestamp: Date.now()
+            }
+            messages.value.push(checklistButton)
+            await scrollToBottom()
+          }, 2000)
+        }, 1000)
       }
       break
 
@@ -819,6 +915,13 @@ const handleActionClick = async (actionData) => {
                   action: 'show_police_script',
                   style: 'primary',
                   data: actionData.data || {} // coverageType 전달
+                },
+                {
+                  label: '아니요, 혼자 힘으로 할 수 있어요!',
+                  icon: '👍',
+                  action: 'skip_script',
+                  style: 'secondary',
+                  data: actionData.data || {}
                 }
               ]
             },
@@ -858,6 +961,13 @@ const handleActionClick = async (actionData) => {
                   action: 'show_hospital_script',
                   style: 'primary',
                   data: actionData.data || {} // coverageType 전달
+                },
+                {
+                  label: '아니요, 혼자 힘으로 할 수 있어요!',
+                  icon: '👍',
+                  action: 'skip_script',
+                  style: 'secondary',
+                  data: actionData.data || {}
                 }
               ]
             },
@@ -941,6 +1051,71 @@ const handleActionClick = async (actionData) => {
         // 첫 번째 질문 시작 (2초 후)
         setTimeout(async () => {
           await askNextScriptQuestion()
+        }, 2000)
+      }
+      break
+
+    case 'skip_script':
+      // "아니요, 혼자 힘으로 할 수 있어요!" - 스크립트 건너뛰고 서류 확인으로
+      {
+        const { coverageType } = actionData.data || {}
+        
+        const encouragementMessage = {
+          id: Date.now(),
+          type: 'text',
+          sender: 'bot',
+          content: '네, 충분히 하실 수 있으실 거예요! 💪\n\n서류 발급이 완료되시면 알려주세요.',
+          timestamp: Date.now()
+        }
+        messages.value.push(encouragementMessage)
+        await scrollToBottom()
+
+        // 프로그레스 3단계로 업데이트 (서류 발급)
+        emit('progressUpdate', 3)
+
+        // 2초 후 서류 발급 확인 메시지
+        setTimeout(async () => {
+          const checkQuestion = {
+            id: Date.now(),
+            type: 'text',
+            sender: 'bot',
+            content: '서류를 잘 발급받으셨나요? 📋',
+            timestamp: Date.now()
+          }
+          messages.value.push(checkQuestion)
+          await scrollToBottom()
+
+          // 체크리스트 보기 버튼 (2초 후)
+          setTimeout(async () => {
+            const checklistButton = {
+              id: Date.now(),
+              type: 'action_buttons',
+              sender: 'bot',
+              content: {
+                message: '서류 체크리스트를 보여드릴까요?',
+                actions: [
+                  {
+                    label: '✅ 네, 체크리스트 보기',
+                    icon: '📋',
+                    action: 'show_checklist',
+                    style: 'primary',
+                    data: {
+                      coverageType: coverageType
+                    }
+                  },
+                  {
+                    label: '⏳ 아직 준비 중이에요',
+                    icon: '⏳',
+                    action: 'documents_pending',
+                    style: 'secondary'
+                  }
+                ]
+              },
+              timestamp: Date.now()
+            }
+            messages.value.push(checklistButton)
+            await scrollToBottom()
+          }, 2000)
         }, 2000)
       }
       break
@@ -1060,37 +1235,70 @@ const handleUpdateMessage = ({ id, content }) => {
     }
     console.log('ChatContainer - updated message:', messages.value[messageIndex])
 
-    // 체크리스트 메시지인 경우, 모든 필수 서류가 체크되었는지 확인
+    // 체크리스트 메시지인 경우, 상태만 업데이트 (자동 완료 제거)
     if (messages.value[messageIndex].type === 'checklist') {
-      console.log('ChatContainer - checking if all required checked')
-      const allRequiredChecked = content.every(category =>
-        category.documents
-          .filter(doc => doc.required)
-          .every(doc => doc.checked)
-      )
-      console.log('ChatContainer - allRequiredChecked:', allRequiredChecked)
-
-      if (allRequiredChecked) {
-        // 체크리스트 완료 메시지 추가
-        setTimeout(() => {
-          const completionMessage = {
-            id: Date.now(),
-            type: 'text',
-            sender: 'bot',
-            content: '✅ 필수 서류를 모두 확인하셨네요! 이제 보험금 청구 절차를 안내해드리겠습니다.',
-            timestamp: Date.now()
-          }
-          messages.value.push(completionMessage)
-          scrollToBottom()
-
-          // 부모(MainContainer)에 완료 알림
-          emit('checklistComplete')
-        }, 800)
-      }
+      // 상태만 업데이트하고 자동 완료는 하지 않음
+      // 확인 버튼 클릭 시 handleChecklistConfirm에서 처리
     }
   } else {
     console.error('ChatContainer - message not found with id:', id)
   }
+}
+
+// 체크리스트 확인 버튼 클릭 처리
+const handleChecklistConfirm = async ({ messageId, marketingConsent }) => {
+  console.log('ChatContainer - handleChecklistConfirm called:', { messageId, marketingConsent })
+  
+  // 체크리스트 메시지 찾기
+  const checklistMessage = messages.value.find(msg => msg.id === messageId)
+  if (!checklistMessage || checklistMessage.type !== 'checklist') {
+    console.error('ChatContainer - checklist message not found')
+    return
+  }
+
+  // 필수 서류 체크 확인
+  const categories = checklistMessage.content
+  const allRequiredChecked = categories.every(category =>
+    category.documents
+      .filter(doc => doc.required)
+      .every(doc => doc.checked)
+  )
+
+  if (!allRequiredChecked) {
+    // 필수 서류 누락 경고는 체크리스트 컴포넌트에서 처리됨
+    return
+  }
+
+  // 완료 메시지 추가
+  const completionMessage = {
+    id: Date.now(),
+    type: 'text',
+    sender: 'bot',
+    content: '✅ 필수 서류를 모두 확인하셨네요! 정말 수고 많으셨어요. 😊',
+    timestamp: Date.now()
+  }
+  messages.value.push(completionMessage)
+  await scrollToBottom()
+
+  // 마케팅 동의 처리
+  if (marketingConsent) {
+    setTimeout(async () => {
+      const marketingMessage = {
+        id: Date.now(),
+        type: 'text',
+        sender: 'bot',
+        content: '📧 감사합니다! 라이나손해보험의 맞춤형 보험 상품 정보와 유용한 생활 정보를 안내해 드리겠습니다.',
+        timestamp: Date.now()
+      }
+      messages.value.push(marketingMessage)
+      await scrollToBottom()
+    }, 1000)
+  }
+
+  // 타임라인 표시 및 다음 단계로 진행
+  setTimeout(() => {
+    emit('checklistComplete')
+  }, 1500)
 }
 
 // 부모 컴포넌트에서 접근 가능하도록 expose
@@ -1131,6 +1339,7 @@ defineExpose({
   display: flex;
   align-items: center;
   gap: 15px;
+  justify-content: space-between;
 }
 
 .logo-container {
@@ -1152,18 +1361,116 @@ defineExpose({
 
 .header-text {
   flex: 1;
+  min-width: 0; /* 텍스트 오버플로우 방지 */
+}
+
+.dashboard-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.dashboard-button:hover {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: translateY(-1px);
+}
+
+.dashboard-button:active {
+  transform: translateY(0);
+}
+
+.button-icon {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.button-text {
+  font-size: 13px;
 }
 
 .chat-header h2 {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .subtitle {
   margin: 4px 0 0;
   font-size: 12px;
   opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 모바일 반응형 */
+@media (max-width: 768px) {
+  .header-content {
+    gap: 10px;
+  }
+
+  .chat-header h2 {
+    font-size: 16px;
+  }
+
+  .subtitle {
+    font-size: 11px;
+  }
+
+  .dashboard-button {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+
+  .button-text {
+    font-size: 12px;
+  }
+
+  .button-icon {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .chat-header {
+    padding: 16px;
+  }
+
+  .header-content {
+    gap: 8px;
+  }
+
+  .lina-logo {
+    height: 28px;
+  }
+
+  .chat-header h2 {
+    font-size: 15px;
+  }
+
+  .dashboard-button {
+    padding: 6px 10px;
+    gap: 4px;
+  }
+
+  .button-text {
+    display: none; /* 모바일에서는 아이콘만 표시 */
+  }
 }
 
 .messages-container {

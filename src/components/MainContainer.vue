@@ -17,13 +17,6 @@
 
     <!-- 챗봇 화면 -->
     <div v-if="viewMode === 'chat'" class="chat-view">
-      <!-- 상단 헤더 -->
-      <div class="chat-header">
-        <button class="back-button" @click="handleBackToDashboard">
-          ← 대시보드로 돌아가기
-        </button>
-      </div>
-
       <!-- 진행 상태 바 (컴팩트) -->
       <div class="progress-section">
         <ProgressBar
@@ -38,6 +31,7 @@
           ref="chatContainerRef"
           @progressUpdate="handleProgressUpdate"
           @checklistComplete="handleChecklistComplete"
+          @goToDashboard="handleBackToDashboard"
         />
       </div>
     </div>
@@ -215,33 +209,6 @@ onMounted(() => {
   height: 100vh;
 }
 
-.chat-header {
-  background: white;
-  padding: 12px 24px;
-  display: flex;
-  align-items: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-  z-index: 10;
-}
-
-.back-button {
-  background: transparent;
-  border: 2px solid #e0e0e0;
-  padding: 10px 20px;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: #666;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.back-button:hover {
-  border-color: #4DBFC8;
-  color: #4DBFC8;
-  background: #f0f9fa;
-}
-
 .progress-section {
   background: white;
   border-bottom: 1px solid #f0f0f0;
@@ -258,33 +225,15 @@ onMounted(() => {
 
 /* 태블릿 */
 @media (max-width: 768px) {
-  .chat-header {
-    padding: 10px 16px;
-  }
-
-  .back-button {
-    font-size: 13px;
-    padding: 8px 16px;
-  }
-
   .chat-section {
-    padding: 16px;
+    padding: 8px;
   }
 }
 
 /* 모바일 */
 @media (max-width: 480px) {
-  .chat-header {
-    padding: 8px 12px;
-  }
-
-  .back-button {
-    font-size: 12px;
-    padding: 8px 12px;
-  }
-
   .chat-section {
-    padding: 12px;
+    padding: 0;
   }
 }
 </style>
