@@ -6,6 +6,7 @@
         :is="messageComponent"
         v-bind="messageProps"
         @action="handleAction"
+        @update:categories="handleUpdateCategories"
       />
     </div>
     <!-- 메시지 전송 시간 -->
@@ -17,12 +18,12 @@
 import { computed } from 'vue'
 import { MessageType } from '../../types/message.js'
 import TextMessage from '../messages/TextMessage.vue'
-import ImageMessage from '../messages/ImageMessage.vue'
-import AudioMessage from '../messages/AudioMessage.vue'
-import VideoMessage from '../messages/VideoMessage.vue'
 import MapMessage from '../messages/MapMessage.vue'
 import DocumentListMessage from '../messages/DocumentListMessage.vue'
 import ActionButtonsMessage from '../messages/ActionButtonsMessage.vue'
+import ScriptMessage from '../messages/ScriptMessage.vue'
+import DocumentChecklist from '../documents/DocumentChecklist.vue'
+import ClaimTimeline from '../timeline/ClaimTimeline.vue'
 
 // Props 정의
 const props = defineProps({
@@ -34,23 +35,33 @@ const props = defineProps({
 })
 
 // Events 정의
-const emit = defineEmits(['action'])
+const emit = defineEmits(['action', 'updateMessage'])
 
 // ActionButtonsMessage에서 발생한 action 이벤트를 부모로 전달
 const handleAction = (actionData) => {
   emit('action', actionData)
 }
 
+// DocumentChecklist에서 발생한 update:categories 이벤트 처리
+const handleUpdateCategories = (updatedCategories) => {
+  console.log('MessageItem - handleUpdateCategories called:', updatedCategories)
+  console.log('MessageItem - message id:', props.message.id)
+  emit('updateMessage', {
+    id: props.message.id,
+    content: updatedCategories
+  })
+}
+
 // 메시지 타입에 따라 적절한 컴포넌트 선택
 const messageComponent = computed(() => {
   const componentMap = {
     [MessageType.TEXT]: TextMessage,
-    [MessageType.IMAGE]: ImageMessage,
-    [MessageType.AUDIO]: AudioMessage,
-    [MessageType.VIDEO]: VideoMessage,
     [MessageType.MAP]: MapMessage,
     [MessageType.DOCUMENT_LIST]: DocumentListMessage,
     [MessageType.ACTION_BUTTONS]: ActionButtonsMessage,
+    [MessageType.SCRIPT]: ScriptMessage,
+    [MessageType.CHECKLIST]: DocumentChecklist,
+    [MessageType.TIMELINE]: ClaimTimeline,
   }
   return componentMap[props.message.type] || TextMessage
 })
@@ -63,39 +74,19 @@ const messageProps = computed(() => {
     case MessageType.TEXT:
       return { content }
 
-    case MessageType.IMAGE:
-      return {
-        imageUrl: content.url,
-        caption: content.caption,
-        alt: content.alt
-      }
-
-    case MessageType.AUDIO:
-      return {
-        audioUrl: content.url
-      }
-
-    case MessageType.VIDEO:
-      return {
-        videoUrl: content.url,
-        thumbnail: content.thumbnail,
-        caption: content.caption
-      }
-
     case MessageType.MAP:
-      return {
-        location: content
-      }
+      return { location: content }
+
+    case MessageType.CHECKLIST:
+      return { categories: content }
+
+    case MessageType.TIMELINE:
+      return { events: content }
 
     case MessageType.DOCUMENT_LIST:
-      return {
-        content: content
-      }
-
     case MessageType.ACTION_BUTTONS:
-      return {
-        content: content
-      }
+    case MessageType.SCRIPT:
+      return { content }
 
     default:
       return { content: '지원하지 않는 메시지 타입입니다.' }

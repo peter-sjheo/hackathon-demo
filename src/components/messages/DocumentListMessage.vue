@@ -113,13 +113,15 @@ const handleDocumentClick = (doc) => {
 
   const docName = doc.name.toLowerCase()
 
-  // 서류 이름에 따라 적절한 장소 타입 결정
+  // 서류 이름에 따라 적절한 액션 결정
   let actionType = null
 
   if (docName.includes('police') || docName.includes('경찰')) {
-    actionType = 'search_police'
+    // 경찰서 관련 서류 - 스크립트 표시
+    actionType = 'show_police_script'
   } else if (docName.includes('medical') || docName.includes('진단서') || docName.includes('병원')) {
-    actionType = 'search_hospital'
+    // 병원 관련 서류 - 스크립트 표시
+    actionType = 'show_hospital_script'
   }
 
   if (actionType) {

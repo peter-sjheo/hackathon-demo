@@ -28,6 +28,7 @@
         :key="message.id"
         :message="message"
         @action="handleActionClick"
+        @updateMessage="handleUpdateMessage"
       />
 
       <!-- 로딩 인디케이터 -->
@@ -47,22 +48,16 @@
 
     <!-- 퀵 액션 버튼 영역 -->
     <div class="quick-actions">
-      <div class="quick-actions-label">빠른 테스트</div>
+      <div class="quick-actions-label">빠른 문의</div>
       <div class="quick-buttons">
-        <button @click="sendQuickMessage('텍스트')" class="quick-button" :disabled="isLoading">
-          💬 텍스트
+        <button @click="sendQuickMessage('가방을 도난당했어요')" class="quick-button" :disabled="isLoading">
+          🎒 휴대품 도난
         </button>
-        <button @click="sendQuickMessage('이미지')" class="quick-button" :disabled="isLoading">
-          🖼️ 이미지
+        <button @click="sendQuickMessage('병원에 다녀왔어요')" class="quick-button" :disabled="isLoading">
+          🏥 의료비 청구
         </button>
-        <button @click="sendQuickMessage('음성')" class="quick-button" :disabled="isLoading">
-          🎵 음성
-        </button>
-        <button @click="sendQuickMessage('동영상')" class="quick-button" :disabled="isLoading">
-          🎬 동영상
-        </button>
-        <button @click="sendQuickMessage('지도')" class="quick-button" :disabled="isLoading">
-          🗺️ 지도
+        <button @click="sendQuickMessage('주변 경찰서를 찾아주세요')" class="quick-button" :disabled="isLoading">
+          🚔 경찰서 찾기
         </button>
       </div>
     </div>
@@ -90,6 +85,21 @@ import MessageItem from './MessageItem.vue'
 import { useChat } from '../../composables/useChat.js'
 import { CLAIM_DOCUMENTS } from '../../data/claimDocuments.js'
 
+// 상수 정의
+const CONSTANTS = {
+  CUSTOMER_SERVICE_PHONE: '1666-5075',
+  CLAIM_URL: 'https://ec.aceinsurance.co.kr/jsp/acelimited/mainCert.jsp?utm_source=chubb&utm_medium=internal&utm_campaign=internal&utm_content=mob&utm_term=',
+  DELAYS: {
+    SHORT: 800,
+    MEDIUM: 1000,
+    LONG: 2000,
+    FOLLOW_UP: 30000
+  }
+}
+
+// Events 정의
+const emit = defineEmits(['progressUpdate', 'checklistComplete'])
+
 // ChatGPT 연동 composable 사용
 const { messages, isLoading, error, sendMessageStream } = useChat()
 
@@ -97,15 +107,159 @@ const { messages, isLoading, error, sendMessageStream } = useChat()
 const inputText = ref('')
 const messagesContainer = ref(null)
 
+// 스크립트 정보 수집 상태
+const scriptInfoCollection = ref({
+  isCollecting: false,
+  scriptType: null, // 'police' or 'hospital'
+  coverageType: null, // 'personal_belongings' or 'overseas_medical'
+  currentQuestion: null, // 현재 질문 필드
+  collectedData: {}, // 수집된 정보
+  questionsQueue: [] // 남은 질문들
+})
+
+// 유틸리티 함수: 딜레이 후 메시지 추가
+const addMessageWithDelay = async (messageData, delay) => {
+  return new Promise((resolve) => {
+    setTimeout(async () => {
+      messages.value.push(messageData)
+      await scrollToBottom()
+      resolve()
+    }, delay)
+  })
+}
+
+// 스크립트 정보 수집: 다음 질문 물어보기
+const askNextScriptQuestion = async () => {
+  if (scriptInfoCollection.value.questionsQueue.length === 0) {
+    // 모든 정보 수집 완료 -> 스크립트 생성
+    await generatePersonalizedScript()
+    return
+  }
+
+  const nextQuestion = scriptInfoCollection.value.questionsQueue.shift()
+  scriptInfoCollection.value.currentQuestion = nextQuestion.field
+
+  const questionMessage = {
+    id: Date.now(),
+    type: 'text',
+    sender: 'bot',
+    content: nextQuestion.question,
+    timestamp: Date.now()
+  }
+  messages.value.push(questionMessage)
+  await scrollToBottom()
+}
+
+// 맞춤형 스크립트 생성
+const generatePersonalizedScript = async () => {
+  scriptInfoCollection.value.isCollecting = false
+
+  const scriptMessage = {
+    id: Date.now(),
+    type: 'script',
+    sender: 'bot',
+    content: {
+      institutionType: scriptInfoCollection.value.scriptType,
+      defaultLanguage: 'en',
+      personalizedData: scriptInfoCollection.value.collectedData // 수집된 정보 전달
+    },
+    timestamp: Date.now()
+  }
+  messages.value.push(scriptMessage)
+  await scrollToBottom()
+
+  // 프로그레스 3단계로 업데이트 (서류 발급)
+  emit('progressUpdate', 3)
+
+  // coverageType 임시 저장 (체크리스트에서 사용)
+  const savedCoverageType = scriptInfoCollection.value.coverageType
+
+  // 스크립트 정보 초기화
+  scriptInfoCollection.value = {
+    isCollecting: false,
+    scriptType: null,
+    coverageType: savedCoverageType, // 체크리스트 표시 시 사용하기 위해 유지
+    currentQuestion: null,
+    collectedData: {},
+    questionsQueue: []
+  }
+
+  // 스크립트 후 체크리스트 확인 메시지 (4초 후)
+  setTimeout(async () => {
+    const checkQuestion = {
+      id: Date.now(),
+      type: 'text',
+      sender: 'bot',
+      content: '서류를 잘 발급받으셨나요? 📋',
+      timestamp: Date.now()
+    }
+    messages.value.push(checkQuestion)
+    await scrollToBottom()
+
+    // 체크리스트 보기 버튼 (2초 후)
+    setTimeout(async () => {
+      const checklistButton = {
+        id: Date.now(),
+        type: 'action_buttons',
+        sender: 'bot',
+        content: {
+          message: '서류 체크리스트를 보여드릴까요?',
+          actions: [
+            {
+              label: '✅ 네, 체크리스트 보기',
+              icon: '📋',
+              action: 'show_checklist',
+              style: 'primary',
+              data: {
+                coverageType: savedCoverageType
+              }
+            },
+            {
+              label: '⏳ 아직 준비 중이에요',
+              icon: '⏳',
+              action: 'documents_pending',
+              style: 'secondary'
+            }
+          ]
+        },
+        timestamp: Date.now()
+      }
+      messages.value.push(checklistButton)
+      await scrollToBottom()
+    }, 2000)
+  }, 4000)
+}
+
 // 메시지 전송 처리
 const handleSendMessage = async () => {
   const text = inputText.value.trim()
   if (!text || isLoading.value) return
 
   inputText.value = '' // 입력창 비우기
-  await scrollToBottom()
 
-  // ChatGPT API 호출 (스트리밍 방식)
+  // 스크립트 정보 수집 중이면 사용자 메시지 추가하고 정보 저장
+  if (scriptInfoCollection.value.isCollecting) {
+    // 사용자 메시지 추가 (수집 모드에서만)
+    const userMessage = {
+      id: Date.now(),
+      type: 'text',
+      sender: 'user',
+      content: text,
+      timestamp: Date.now()
+    }
+    messages.value.push(userMessage)
+    await scrollToBottom()
+
+    const currentField = scriptInfoCollection.value.currentQuestion
+    scriptInfoCollection.value.collectedData[currentField] = text
+
+    // 다음 질문으로 진행
+    await askNextScriptQuestion()
+    return
+  }
+
+  // 일반 ChatGPT API 호출 (스트리밍 방식)
+  // sendMessageStream이 사용자 메시지를 추가하므로 여기서는 추가하지 않음
   await sendMessageStream(text)
   await scrollToBottom()
 }
@@ -114,41 +268,8 @@ const handleSendMessage = async () => {
 const sendQuickMessage = async (message) => {
   if (isLoading.value) return
 
-  // "지도" 버튼은 테스트용으로 바로 지도 표시
-  if (message === '지도') {
-    // 사용자 메시지 추가
-    const userMessage = {
-      id: Date.now(),
-      type: 'text',
-      sender: 'user',
-      content: message,
-      timestamp: Date.now()
-    }
-    messages.value.push(userMessage)
-    await scrollToBottom()
-
-    // 지도 메시지 추가 (서울시청 예시)
-    const mapMessage = {
-      id: Date.now() + 1,
-      type: 'map',
-      sender: 'bot',
-      content: {
-        lat: 37.5665,
-        lng: 126.9780,
-        address: '서울특별시 중구 세종대로 110 (서울시청)',
-        zoom: 15
-      },
-      timestamp: Date.now()
-    }
-    messages.value.push(mapMessage)
-    await scrollToBottom()
-    return
-  }
-
-  // 나머지 버튼들은 GPT API 호출
-  await scrollToBottom()
-  await sendMessageStream(message)
-  await scrollToBottom()
+  inputText.value = message
+  await handleSendMessage()
 }
 
 // ActionButtons 클릭 처리
@@ -165,33 +286,116 @@ const handleActionClick = async (actionData) => {
       // "주변 경찰서 찾기" -> GPT에 전달하여 실제 경찰서 검색
       await sendMessageStream('주변 경찰서를 찾아주세요')
 
-      // 1초 후 레포트 요청 메시지 작성 버튼 표시
+      // 3초 후 확인 메시지 표시 (스크립트 버튼 바로 표시하지 않음)
       setTimeout(async () => {
-        const policeReportButtonMessage = {
+        const confirmMessage = {
           id: Date.now(),
           type: 'action_buttons',
           sender: 'bot',
           content: {
-            message: '경찰서에서 사용할 영어 메시지가 필요하신가요?',
+            message: '찾으신 경찰서가 도움이 되셨나요?',
             actions: [
               {
-                label: '📝 레포트 요청 메시지 작성',
-                icon: '📝',
-                action: 'show_police_report_message',
-                style: 'info'
+                label: '✅ 네, 여기로 갈게요',
+                icon: '👍',
+                action: 'confirm_police_location',
+                style: 'primary',
+                data: actionData.data || {} // coverageType 전달
+              },
+              {
+                label: '다른 경찰서를 찾아주세요',
+                icon: '🔍',
+                action: 'search_police',
+                style: 'secondary',
+                data: actionData.data || {}
               }
             ]
           },
           timestamp: Date.now()
         }
-        messages.value.push(policeReportButtonMessage)
+        messages.value.push(confirmMessage)
         await scrollToBottom()
-      }, 2000)
+      }, 3000)
       break
 
     case 'search_hospital':
       // "주변 병원 찾기" -> GPT에 자연어로 전달하여 searchPlace 함수 호출 유도
       await sendMessageStream('주변 병원을 찾아주세요')
+
+      // 3초 후 확인 메시지 표시 (스크립트 버튼 바로 표시하지 않음)
+      setTimeout(async () => {
+        const confirmMessage = {
+          id: Date.now(),
+          type: 'action_buttons',
+          sender: 'bot',
+          content: {
+            message: '찾으신 병원이 도움이 되셨나요?',
+            actions: [
+              {
+                label: '✅ 네, 여기로 갈게요',
+                icon: '👍',
+                action: 'confirm_hospital_location',
+                style: 'primary',
+                data: actionData.data || {} // coverageType 전달
+              },
+              {
+                label: '다른 병원을 찾아주세요',
+                icon: '🔍',
+                action: 'search_hospital',
+                style: 'secondary',
+                data: actionData.data || {}
+              }
+            ]
+          },
+          timestamp: Date.now()
+        }
+        messages.value.push(confirmMessage)
+        await scrollToBottom()
+      }, 3000)
+      break
+
+    case 'confirm_document_guide':
+      // "필요 서류를 안내해드릴까요?" 확인 후 서류 선택 버튼 표시
+      {
+        const { coverageType, needPolice, needHospital } = actionData.data
+
+        // 프로그레스 1단계로 업데이트 (보장 확인 완료)
+        emit('progressUpdate', 1)
+
+        const documentSelectionMessage = {
+          id: Date.now(),
+          type: 'action_buttons',
+          sender: 'bot',
+          content: {
+            message: '어떤 서류를 안내해드릴까요?',
+            actions: [
+              {
+                label: '꼭 준비해야하는 서류 (현지)',
+                icon: '📋',
+                action: 'show_overseas_docs',
+                style: 'primary',
+                data: {
+                  coverageType: coverageType,
+                  needPolice: needPolice || false,
+                  needHospital: needHospital || false
+                }
+              },
+              {
+                label: '귀국 후 준비할 서류',
+                icon: '🏠',
+                action: 'show_home_docs',
+                style: 'info',
+                data: {
+                  coverageType: coverageType
+                }
+              }
+            ]
+          },
+          timestamp: Date.now()
+        }
+        messages.value.push(documentSelectionMessage)
+        await scrollToBottom()
+      }
       break
 
     case 'show_overseas_docs':
@@ -199,6 +403,9 @@ const handleActionClick = async (actionData) => {
       {
         const { coverageType, needPolice, needHospital } = actionData.data
         const documentsData = CLAIM_DOCUMENTS[coverageType]
+
+        // 프로그레스 2단계로 업데이트 (서류 안내)
+        emit('progressUpdate', 2)
 
         // 현지 서류 리스트 표시
         const overseasDocsMessage = {
@@ -215,7 +422,7 @@ const handleActionClick = async (actionData) => {
         messages.value.push(overseasDocsMessage)
         await scrollToBottom()
 
-        // 추가 옵션 버튼 (1초 후)
+        // 추가 옵션 버튼 (2초 후)
         setTimeout(async () => {
           const actions = []
 
@@ -226,7 +433,8 @@ const handleActionClick = async (actionData) => {
               label: `${locationLabel} 위치를 안내해드릴까요?`,
               icon: needPolice ? '🚔' : '🏥',
               action: needPolice ? 'search_police' : 'search_hospital',
-              style: 'primary'
+              style: 'primary',
+              data: { coverageType, needPolice, needHospital }
             })
           }
 
@@ -237,14 +445,6 @@ const handleActionClick = async (actionData) => {
             action: 'show_home_docs',
             style: 'info',
             data: { coverageType }
-          })
-
-          // 상담원 연결 버튼
-          actions.push({
-            label: '상담원 연결',
-            icon: '☎️',
-            action: 'call_agent',
-            style: 'secondary'
           })
 
           const optionsMessage = {
@@ -259,55 +459,7 @@ const handleActionClick = async (actionData) => {
           }
           messages.value.push(optionsMessage)
           await scrollToBottom()
-
-          // Follow-up 메시지 - 30초 후
-          setTimeout(async () => {
-            const followUpMessage = {
-              id: Date.now(),
-              type: 'text',
-              sender: 'bot',
-              content: '혹시 서류 발급은 잘 진행하고 계신가요? 📋',
-              timestamp: Date.now()
-            }
-            messages.value.push(followUpMessage)
-            await scrollToBottom()
-
-            // Follow-up 액션 버튼 (0.8초 후)
-            setTimeout(async () => {
-              const followUpActions = {
-                id: Date.now(),
-                type: 'action_buttons',
-                sender: 'bot',
-                content: {
-                  message: '진행 상황을 알려주시면 더 도와드릴 수 있어요',
-                  actions: [
-                    {
-                      label: '✅ 네, 발급 받았어요',
-                      icon: '✅',
-                      action: 'documents_received',
-                      style: 'success'
-                    },
-                    {
-                      label: '⏳ 아직 진행 중이에요',
-                      icon: '⏳',
-                      action: 'documents_pending',
-                      style: 'info'
-                    },
-                    {
-                      label: '❓ 도움이 필요해요',
-                      icon: '❓',
-                      action: 'need_help',
-                      style: 'secondary'
-                    }
-                  ]
-                },
-                timestamp: Date.now()
-              }
-              messages.value.push(followUpActions)
-              await scrollToBottom()
-            }, 800)
-          }, 30000)
-        }, 1000)
+        }, 2000)
       }
       break
 
@@ -332,7 +484,7 @@ const handleActionClick = async (actionData) => {
         messages.value.push(homeDocsMessage)
         await scrollToBottom()
 
-        // 상담원 연결 옵션 (1초 후)
+        // 상담원 연결 옵션 (2초 후)
         setTimeout(async () => {
           const contactMessage = {
             id: Date.now(),
@@ -353,7 +505,7 @@ const handleActionClick = async (actionData) => {
           }
           messages.value.push(contactMessage)
           await scrollToBottom()
-        }, 1000)
+        }, 2000)
       }
       break
 
@@ -363,7 +515,7 @@ const handleActionClick = async (actionData) => {
         id: Date.now(),
         type: 'text',
         sender: 'bot',
-        content: '☎️ 상담원과 직접 통화하시겠어요?\n\n📞 라이나손해보험 고객센터\n1666-5075\n\n⏰ 평일 09:00 ~ 18:00\n(주말 및 공휴일 제외)\n\n친절한 상담원이 자세히 안내해 드립니다!',
+        content: `☎️ 상담원과 직접 통화하시겠어요?\n\n📞 라이나손해보험 고객센터\n${CONSTANTS.CUSTOMER_SERVICE_PHONE}\n\n⏰ 평일 09:00 ~ 18:00\n(주말 및 공휴일 제외)\n\n친절한 상담원이 자세히 안내해 드립니다!`,
         timestamp: Date.now()
       }
       messages.value.push(agentMessage)
@@ -377,7 +529,7 @@ const handleActionClick = async (actionData) => {
         id: Date.now(),
         type: 'text',
         sender: 'bot',
-        content: '👍 수고 많으셨어요!\n\n이제 귀국하신 후 청구 절차를 진행하시면 됩니다.\n\n먼저 라이나손해보험 고객센터(1666-5075)로 전화하셔서 주민등록번호 입력을 요청해 주세요.',
+        content: `👍 수고 많으셨어요!\n\n이제 귀국하신 후 청구 절차를 진행하시면 됩니다.\n\n먼저 라이나손해보험 고객센터(${CONSTANTS.CUSTOMER_SERVICE_PHONE})로 전화하셔서 주민등록번호 입력을 요청해 주세요.`,
         timestamp: Date.now()
       }
       messages.value.push(step1Message)
@@ -395,7 +547,7 @@ const handleActionClick = async (actionData) => {
               {
                 label: '청구하러가기',
                 icon: '🔗',
-                url: 'https://ec.aceinsurance.co.kr/jsp/acelimited/mainCert.jsp?utm_source=chubb&utm_medium=internal&utm_campaign=internal&utm_content=mob&utm_term=',
+                url: CONSTANTS.CLAIM_URL,
                 style: 'primary'
               }
             ]
@@ -473,7 +625,7 @@ const handleActionClick = async (actionData) => {
         id: Date.now(),
         type: 'text',
         sender: 'bot',
-        content: '감사합니다! 😊\n\n곧 맞춤형 보험 상품 정보를 안내해 드리겠습니다.\n\n더 궁금하신 점이 있으시면 고객센터(1666-5075)로 연락 주시거나, 저를 다시 불러주세요!',
+        content: `감사합니다! 😊\n\n곧 맞춤형 보험 상품 정보를 안내해 드리겠습니다.\n\n더 궁금하신 점이 있으시면 고객센터(${CONSTANTS.CUSTOMER_SERVICE_PHONE})로 연락 주시거나, 저를 다시 불러주세요!`,
         timestamp: Date.now()
       }
       messages.value.push(acceptMessage)
@@ -486,45 +638,226 @@ const handleActionClick = async (actionData) => {
         id: Date.now(),
         type: 'text',
         sender: 'bot',
-        content: '네, 알겠습니다! 😊\n\n다른 도움이 필요하시면 언제든지\n고객센터(1666-5075)로 연락하시거나\n저를 다시 찾아주세요!\n\n항상 도와드릴 준비가 되어 있어요.',
+        content: `네, 알겠습니다! 😊\n\n다른 도움이 필요하시면 언제든지\n고객센터(${CONSTANTS.CUSTOMER_SERVICE_PHONE})로 연락하시거나\n저를 다시 찾아주세요!\n\n항상 도와드릴 준비가 되어 있어요.`,
         timestamp: Date.now()
       }
       messages.value.push(declineMessage)
       await scrollToBottom()
       break
 
-    case 'show_police_report_message':
-      // 경찰서 레포트 요청 영어 메시지 표시
-      const policeReportMessage = {
-        id: Date.now(),
-        type: 'text',
-        sender: 'bot',
-        content: `📋 경찰서에서 사용할 영어 메시지입니다:
+    case 'confirm_police_location':
+      // "네, 여기로 갈게요" (경찰서) - 스크립트 버튼 표시
+      {
+        const thanksMessage = {
+          id: Date.now(),
+          type: 'text',
+          sender: 'bot',
+          content: '좋아요! 경찰서 방문 시 사용할 스크립트를 준비해드릴게요. 📝',
+          timestamp: Date.now()
+        }
+        messages.value.push(thanksMessage)
+        await scrollToBottom()
 
-━━━━━━━━━━━━━━━━━━━━━━━
-
-Hello, I would like to report an incident.
-
-I am a traveler from South Korea and I need to file a police report for my travel insurance claim.
-
-Details:
-• Date of incident: [사고 발생 날짜]
-• Location: [사고 발생 장소]
-• What happened: [사고 내용 설명]
-• Items lost/stolen (if applicable): [분실/도난 물품 목록]
-
-Could you please help me file an official police report? I need this document for my insurance claim.
-
-Thank you for your assistance.
-
-━━━━━━━━━━━━━━━━━━━━━━━
-
-💡 위 내용을 복사해서 경찰관에게 보여주시면 됩니다.
-[  ] 안의 내용은 실제 정보로 채워주세요.`,
-        timestamp: Date.now()
+        // 2초 후 스크립트 버튼 표시
+        setTimeout(async () => {
+          const policeScriptButtonMessage = {
+            id: Date.now(),
+            type: 'action_buttons',
+            sender: 'bot',
+            content: {
+              message: '경찰서에서 사용할 스크립트가 필요하신가요?',
+              actions: [
+                {
+                  label: '🔊 경찰서 방문 스크립트 보기',
+                  icon: '📝',
+                  action: 'show_police_script',
+                  style: 'primary',
+                  data: actionData.data || {} // coverageType 전달
+                }
+              ]
+            },
+            timestamp: Date.now()
+          }
+          messages.value.push(policeScriptButtonMessage)
+          await scrollToBottom()
+        }, 2000)
       }
-      messages.value.push(policeReportMessage)
-      await scrollToBottom()
+      break
+
+    case 'confirm_hospital_location':
+      // "네, 여기로 갈게요" (병원) - 스크립트 버튼 표시
+      {
+        const thanksMessage = {
+          id: Date.now(),
+          type: 'text',
+          sender: 'bot',
+          content: '좋아요! 병원 방문 시 사용할 스크립트를 준비해드릴게요. 📝',
+          timestamp: Date.now()
+        }
+        messages.value.push(thanksMessage)
+        await scrollToBottom()
+
+        // 2초 후 스크립트 버튼 표시
+        setTimeout(async () => {
+          const hospitalScriptButtonMessage = {
+            id: Date.now(),
+            type: 'action_buttons',
+            sender: 'bot',
+            content: {
+              message: '병원에서 사용할 스크립트가 필요하신가요?',
+              actions: [
+                {
+                  label: '🔊 병원 방문 스크립트 보기',
+                  icon: '🏥',
+                  action: 'show_hospital_script',
+                  style: 'primary',
+                  data: actionData.data || {} // coverageType 전달
+                }
+              ]
+            },
+            timestamp: Date.now()
+          }
+          messages.value.push(hospitalScriptButtonMessage)
+          await scrollToBottom()
+        }, 2000)
+      }
+      break
+
+    case 'show_police_report_message':
+    case 'show_police_script':
+      // 경찰서 스크립트 작성을 위한 정보 수집 시작
+      {
+        const { coverageType } = actionData.data || {}
+
+        const introMessage = {
+          id: Date.now(),
+          type: 'text',
+          sender: 'bot',
+          content: '경찰서 방문 시 사용할 스크립트를 작성해드리겠습니다! 📝\n\n몇 가지 정보가 필요해요.',
+          timestamp: Date.now()
+        }
+        messages.value.push(introMessage)
+        await scrollToBottom()
+
+        // 정보 수집 시작
+        scriptInfoCollection.value = {
+          isCollecting: true,
+          scriptType: 'police',
+          coverageType: coverageType || 'personal_belongings', // 기본값
+          currentQuestion: null,
+          collectedData: {},
+          questionsQueue: [
+            { field: 'items', question: '어떤 물품을 도난/분실하셨나요?\n\n예시: 아이패드, 여권, 가방 등' },
+            { field: 'date', question: '언제 발생했나요?\n\n예시: 2024년 1월 15일' },
+            { field: 'time', question: '몇 시경에 발생했나요?\n\n예시: 오후 3시경, 14:00경' },
+            { field: 'location', question: '어디에서 발생했나요?\n\n예시: 에펠탑 근처 카페, 호텔 로비' }
+          ]
+        }
+
+        // 첫 번째 질문 시작 (2초 후)
+        setTimeout(async () => {
+          await askNextScriptQuestion()
+        }, 2000)
+      }
+      break
+
+    case 'show_hospital_script':
+      // 병원 스크립트 작성을 위한 정보 수집 시작
+      {
+        const { coverageType } = actionData.data || {}
+
+        const introMessage = {
+          id: Date.now(),
+          type: 'text',
+          sender: 'bot',
+          content: '병원 방문 시 사용할 스크립트를 작성해드리겠습니다! 📝\n\n몇 가지 정보가 필요해요.',
+          timestamp: Date.now()
+        }
+        messages.value.push(introMessage)
+        await scrollToBottom()
+
+        // 정보 수집 시작
+        scriptInfoCollection.value = {
+          isCollecting: true,
+          scriptType: 'hospital',
+          coverageType: coverageType || 'overseas_medical', // 기본값
+          currentQuestion: null,
+          collectedData: {},
+          questionsQueue: [
+            { field: 'symptoms', question: '어떤 증상이 있으신가요?\n\n예시: 발목 삠, 고열과 두통, 복통' },
+            { field: 'date', question: '언제부터 증상이 시작되었나요?\n\n예시: 어제 오후부터, 2024년 1월 15일' },
+            { field: 'time', question: '몇 시경인가요?\n\n예시: 오후 3시경, 14:00경' }
+          ]
+        }
+
+        // 첫 번째 질문 시작 (2초 후)
+        setTimeout(async () => {
+          await askNextScriptQuestion()
+        }, 2000)
+      }
+      break
+
+    case 'show_checklist':
+      // 체크리스트 표시
+      {
+        const { coverageType } = actionData.data || {}
+
+        // coverageType이 없으면 기본값 사용
+        const actualCoverageType = coverageType || 'personal_belongings'
+        console.log('show_checklist - coverageType:', coverageType)
+        console.log('show_checklist - actualCoverageType:', actualCoverageType)
+        const documentsData = CLAIM_DOCUMENTS[actualCoverageType]
+        console.log('show_checklist - documentsData:', documentsData)
+
+        const checklistMessage = {
+          id: Date.now(),
+          type: 'checklist',
+          sender: 'bot',
+          content: [
+            {
+              title: '해외에서 준비',
+              icon: '🌍',
+              description: '현지',
+              documents: documentsData.overseas.map(doc => ({
+                ...doc,
+                checked: false
+              }))
+            },
+            {
+              title: '귀국 후 준비',
+              icon: '🏠',
+              description: '국내',
+              documents: documentsData.home.map(doc => ({
+                ...doc,
+                checked: false
+              }))
+            }
+          ],
+          timestamp: Date.now()
+        }
+        messages.value.push(checklistMessage)
+        await scrollToBottom()
+      }
+      break
+
+    case 'submit_claim':
+      // 타임라인에서 "청구서 작성하기" 클릭
+      {
+        const confirmMessage = {
+          id: Date.now(),
+          type: 'text',
+          sender: 'bot',
+          content: `🔗 보험금 청구 페이지로 이동합니다.\n\n라이나손해보험 온라인 청구 시스템에서 청구서를 작성하실 수 있습니다.`,
+          timestamp: Date.now()
+        }
+        messages.value.push(confirmMessage)
+        await scrollToBottom()
+
+        // 1초 후 링크로 이동
+        setTimeout(() => {
+          window.open(CONSTANTS.CLAIM_URL, '_blank')
+        }, 1000)
+      }
       break
 
     default:
@@ -553,18 +886,90 @@ const handleLogoError = (event) => {
   textLogo.textContent = 'LINA'
   event.target.parentElement.appendChild(textLogo)
 }
+
+// 외부에서 메시지 주입 가능하도록 expose
+const addMessage = async (message) => {
+  messages.value.push({
+    id: Date.now(),
+    ...message,
+    timestamp: message.timestamp || Date.now()
+  })
+  await scrollToBottom()
+}
+
+// 메시지 업데이트 처리 (체크리스트 상태 변경)
+const handleUpdateMessage = ({ id, content }) => {
+  console.log('ChatContainer - handleUpdateMessage called:', { id, content })
+  const messageIndex = messages.value.findIndex(msg => msg.id === id)
+  console.log('ChatContainer - messageIndex:', messageIndex)
+
+  if (messageIndex !== -1) {
+    console.log('ChatContainer - current message:', messages.value[messageIndex])
+    // Vue 반응성을 위해 새 객체 생성
+    messages.value[messageIndex] = {
+      ...messages.value[messageIndex],
+      content: content
+    }
+    console.log('ChatContainer - updated message:', messages.value[messageIndex])
+
+    // 체크리스트 메시지인 경우, 모든 필수 서류가 체크되었는지 확인
+    if (messages.value[messageIndex].type === 'checklist') {
+      console.log('ChatContainer - checking if all required checked')
+      const allRequiredChecked = content.every(category =>
+        category.documents
+          .filter(doc => doc.required)
+          .every(doc => doc.checked)
+      )
+      console.log('ChatContainer - allRequiredChecked:', allRequiredChecked)
+
+      if (allRequiredChecked) {
+        // 체크리스트 완료 메시지 추가
+        setTimeout(() => {
+          const completionMessage = {
+            id: Date.now(),
+            type: 'text',
+            sender: 'bot',
+            content: '✅ 필수 서류를 모두 확인하셨네요! 이제 보험금 청구 절차를 안내해드리겠습니다.',
+            timestamp: Date.now()
+          }
+          messages.value.push(completionMessage)
+          scrollToBottom()
+
+          // 부모(MainContainer)에 완료 알림
+          emit('checklistComplete')
+        }, 800)
+      }
+    }
+  } else {
+    console.error('ChatContainer - message not found with id:', id)
+  }
+}
+
+// 부모 컴포넌트에서 접근 가능하도록 expose
+defineExpose({
+  addMessage
+})
 </script>
 
 <style scoped>
 .chat-container {
-  width: 600px;
-  height: 700px;
+  width: 100%;
+  max-width: 900px;
+  height: 100%;
   background: white;
   border-radius: 20px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* 모바일에서는 전체 너비 사용 */
+@media (max-width: 768px) {
+  .chat-container {
+    border-radius: 0;
+    box-shadow: none;
+  }
 }
 
 .chat-header {
@@ -672,69 +1077,43 @@ const handleLogoError = (event) => {
   font-weight: 500;
 }
 
-/* 💬 텍스트 - 라이나 청록 */
+/* 🎒 휴대품 도난 */
 .quick-button:nth-child(1) {
+  border-color: #D24726;
+  color: #D24726;
+}
+
+.quick-button:nth-child(1):hover:not(:disabled) {
+  background: #D24726;
+  color: white;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(210, 71, 38, 0.3);
+}
+
+/* 🏥 의료비 청구 */
+.quick-button:nth-child(2) {
+  border-color: #7030A0;
+  color: #7030A0;
+}
+
+.quick-button:nth-child(2):hover:not(:disabled) {
+  background: #7030A0;
+  color: white;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(112, 48, 160, 0.3);
+}
+
+/* 🚔 경찰서 찾기 */
+.quick-button:nth-child(3) {
   border-color: #4DBFC8;
   color: #4DBFC8;
 }
 
-.quick-button:nth-child(1):hover:not(:disabled) {
+.quick-button:nth-child(3):hover:not(:disabled) {
   background: #4DBFC8;
   color: white;
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(77, 191, 200, 0.3);
-}
-
-/* 🖼️ 이미지 - 라이나 청록 밝게 */
-.quick-button:nth-child(2) {
-  border-color: #5ACCD5;
-  color: #5ACCD5;
-}
-
-.quick-button:nth-child(2):hover:not(:disabled) {
-  background: #5ACCD5;
-  color: white;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(90, 204, 213, 0.3);
-}
-
-/* 🎵 음성 - 라이나 청록 중간 */
-.quick-button:nth-child(3) {
-  border-color: #3AA8B1;
-  color: #3AA8B1;
-}
-
-.quick-button:nth-child(3):hover:not(:disabled) {
-  background: #3AA8B1;
-  color: white;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(58, 168, 177, 0.3);
-}
-
-/* 🎬 동영상 - 라이나 청록 진하게 */
-.quick-button:nth-child(4) {
-  border-color: #2E8C94;
-  color: #2E8C94;
-}
-
-.quick-button:nth-child(4):hover:not(:disabled) {
-  background: #2E8C94;
-  color: white;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(46, 140, 148, 0.3);
-}
-
-/* 🗺️ 지도 - 라이나 청록 어둡게 */
-.quick-button:nth-child(5) {
-  border-color: #247078;
-  color: #247078;
-}
-
-.quick-button:nth-child(5):hover:not(:disabled) {
-  background: #247078;
-  color: white;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(36, 112, 120, 0.3);
 }
 
 .quick-button:active:not(:disabled) {
@@ -813,12 +1192,6 @@ const handleLogoError = (event) => {
 .welcome-message p {
   margin: 8px 0;
   font-size: 14px;
-}
-
-.welcome-message .warning {
-  color: #f59e0b;
-  font-weight: 500;
-  margin-top: 20px;
 }
 
 /* 로딩 인디케이터 */

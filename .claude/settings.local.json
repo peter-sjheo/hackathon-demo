@@ -8,7 +8,9 @@
       "WebFetch(domain:www.chubb.com)",
       "Bash(npm run dev:*)",
       "WebFetch(domain:www.lina.co.kr)",
-      "Bash(git remote set-url:*)"
+      "Bash(git remote set-url:*)",
+      "Bash(node convert_csv_to_json.js:*)",
+      "Bash(node convert_csv_to_json.cjs:*)"
     ],
     "deny": [],
     "ask": []

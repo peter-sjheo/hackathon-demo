@@ -3,7 +3,10 @@
  * ChatGPT API와 통신하는 서비스
  */
 
+import { buildRAGContext, isInsuranceRelatedQuery, isTravelInfoQuery } from './ragService.js'
+
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions'
+const OPENAI_TTS_API_URL = 'https://api.openai.com/v1/audio/speech'
 
 // Function Calling용 함수 정의
 const FUNCTIONS = [
@@ -81,11 +84,35 @@ export async function sendMessageToGPT(message, conversationHistory = [], apiKey
   }
 
   try {
-    // 대화 히스토리 구성
-    const messages = [
-      {
-        role: 'system',
-        content: `당신은 라이나손해보험(Chubb 계열)의 해외여행보험 고객을 돕는 AI 상담원입니다.
+    // 질문 타입 분류
+    const isInsuranceQuery = isInsuranceRelatedQuery(message)
+    const isTravelInfo = isTravelInfoQuery(message)
+    
+    // RAG 컨텍스트 생성 (보험 관련 질문인 경우만)
+    let ragContext = ''
+    if (isInsuranceQuery) {
+      ragContext = buildRAGContext(message)
+    }
+
+    // 시스템 프롬프트 구성
+    let systemContent = ''
+    
+    if (isTravelInfo && !isInsuranceQuery) {
+      // 여행 정보 질문 (날씨, 환율 등) - 간략하게 답변
+      systemContent = `당신은 라이나손해보험의 해외여행보험 고객을 돕는 AI 상담원입니다.
+
+고객이 여행에 필요한 일반 정보(날씨, 환율 등)를 물어볼 때:
+- 간결하고 핵심적인 정보만 제공
+- 2-3문장 이내로 간략하게 답변
+- 필요하면 실시간 정보를 참고하되, 정확하지 않은 경우 "실시간 정보는 검색을 통해 확인하시기 바랍니다"라고 안내
+- 친절하지만 간결한 톤 유지
+
+답변 예시:
+- 날씨: "현재 파리 날씨는 15-20도 정도이며, 가벼운 비 예보가 있습니다. 우산을 준비하시는 것을 추천드립니다."
+- 환율: "현재 유로화 환율은 약 1,400원대입니다. 실시간 환율은 은행 앱이나 환전소에서 확인하시기 바랍니다."`
+    } else {
+      // 보험 관련 질문 - 기존 방식
+      systemContent = `당신은 라이나손해보험(Chubb 계열)의 해외여행보험 고객을 돕는 AI 상담원입니다.
 
 역할:
 - 고객의 사고 상황을 듣고 담보 유형(휴대품 손해/해외 의료비)을 분류
@@ -97,9 +124,22 @@ export async function sendMessageToGPT(message, conversationHistory = [], apiKey
 - 법적/의료적 최종 판단을 대신하지 않음
 - 주민등록번호 등 민감 정보는 전화로만 상담원에게 제공하도록 안내
 
-함수 사용:
-- 사고 상황 파악 시: classifyAccident 함수 사용
+**중요: 함수 호출 규칙**
+- 고객이 사고 상황을 설명하는 경우 (예: "도난당했어요", "분실했어요", "휴대폰 잃어버렸어요", "파손됐어요", "아파요", "다쳤어요", "병원 갔어요" 등) **반드시** classifyAccident 함수를 먼저 호출해야 합니다
+- 절대 일반 텍스트로만 답변하지 마세요
 - 병원/경찰서 찾기 시: searchPlace 함수 사용`
+
+      // RAG 컨텍스트가 있으면 추가
+      if (ragContext) {
+        systemContent += `\n\n---\n\n${ragContext}\n\n위의 지식 베이스 정보를 참고하여 정확하고 구체적으로 답변해주세요.`
+      }
+    }
+
+    // 대화 히스토리 구성
+    const messages = [
+      {
+        role: 'system',
+        content: systemContent
       },
       ...conversationHistory,
       {
@@ -108,21 +148,27 @@ export async function sendMessageToGPT(message, conversationHistory = [], apiKey
       }
     ]
 
-    // API 호출
+    // API 호출 - request body 조건부 구성
+    const requestBody = {
+      model: 'gpt-4o',
+      messages: messages,
+      temperature: 0.7,
+      max_tokens: isTravelInfo && !isInsuranceQuery ? 200 : 1000 // 여행 정보는 간략하게 (토큰 제한)
+    }
+
+    // 보험 관련 질문일 때만 Function Calling 파라미터 추가
+    if (isInsuranceQuery) {
+      requestBody.functions = FUNCTIONS
+      requestBody.function_call = 'auto'
+    }
+
     const response = await fetch(OPENAI_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
-      body: JSON.stringify({
-        model: 'gpt-3.5-turbo',
-        messages: messages,
-        functions: FUNCTIONS, // Function Calling 활성화
-        function_call: 'auto', // 자동으로 함수 호출 결정
-        temperature: 0.7,
-        max_tokens: 1000
-      })
+      body: JSON.stringify(requestBody)
     })
 
     // 에러 응답 처리
@@ -175,10 +221,35 @@ export async function sendMessageToGPTStream(message, conversationHistory = [], 
   }
 
   try {
-    const messages = [
-      {
-        role: 'system',
-        content: `당신은 라이나손해보험(Chubb 계열)의 해외여행보험 고객을 돕는 AI 상담원입니다.
+    // 질문 타입 분류
+    const isInsuranceQuery = isInsuranceRelatedQuery(message)
+    const isTravelInfo = isTravelInfoQuery(message)
+    
+    // RAG 컨텍스트 생성 (보험 관련 질문인 경우만)
+    let ragContext = ''
+    if (isInsuranceQuery) {
+      ragContext = buildRAGContext(message)
+    }
+
+    // 시스템 프롬프트 구성
+    let systemContent = ''
+    
+    if (isTravelInfo && !isInsuranceQuery) {
+      // 여행 정보 질문 (날씨, 환율 등) - 간략하게 답변
+      systemContent = `당신은 라이나손해보험의 해외여행보험 고객을 돕는 AI 상담원입니다.
+
+고객이 여행에 필요한 일반 정보(날씨, 환율 등)를 물어볼 때:
+- 간결하고 핵심적인 정보만 제공
+- 2-3문장 이내로 간략하게 답변
+- 필요하면 실시간 정보를 참고하되, 정확하지 않은 경우 "실시간 정보는 검색을 통해 확인하시기 바랍니다"라고 안내
+- 친절하지만 간결한 톤 유지
+
+답변 예시:
+- 날씨: "현재 파리 날씨는 15-20도 정도이며, 가벼운 비 예보가 있습니다. 우산을 준비하시는 것을 추천드립니다."
+- 환율: "현재 유로화 환율은 약 1,400원대입니다. 실시간 환율은 은행 앱이나 환전소에서 확인하시기 바랍니다."`
+    } else {
+      // 보험 관련 질문 - 기존 방식
+      systemContent = `당신은 라이나손해보험(Chubb 계열)의 해외여행보험 고객을 돕는 AI 상담원입니다.
 
 역할:
 - 고객의 사고 상황을 듣고 담보 유형(휴대품 손해/해외 의료비)을 분류
@@ -190,9 +261,21 @@ export async function sendMessageToGPTStream(message, conversationHistory = [], 
 - 법적/의료적 최종 판단을 대신하지 않음
 - 주민등록번호 등 민감 정보는 전화로만 상담원에게 제공하도록 안내
 
-함수 사용:
-- 사고 상황 파악 시: classifyAccident 함수 사용
+**중요: 함수 호출 규칙**
+- 고객이 사고 상황을 설명하는 경우 (예: "도난당했어요", "분실했어요", "휴대폰 잃어버렸어요", "파손됐어요", "아파요", "다쳤어요", "병원 갔어요" 등) **반드시** classifyAccident 함수를 먼저 호출해야 합니다
+- 절대 일반 텍스트로만 답변하지 마세요
 - 병원/경찰서 찾기 시: searchPlace 함수 사용`
+
+      // RAG 컨텍스트가 있으면 추가
+      if (ragContext) {
+        systemContent += `\n\n---\n\n${ragContext}\n\n위의 지식 베이스 정보를 참고하여 정확하고 구체적으로 답변해주세요.`
+      }
+    }
+
+    const messages = [
+      {
+        role: 'system',
+        content: systemContent
       },
       ...conversationHistory,
       {
@@ -201,21 +284,28 @@ export async function sendMessageToGPTStream(message, conversationHistory = [], 
       }
     ]
 
+    // API 호출 - request body 조건부 구성
+    const requestBody = {
+      model: 'gpt-5-mini',
+      messages: messages,
+      temperature: 0.7,
+      max_tokens: isTravelInfo && !isInsuranceQuery ? 200 : 1000, // 여행 정보는 간략하게 (토큰 제한)
+      stream: true // 스트리밍 활성화
+    }
+
+    // 보험 관련 질문일 때만 Function Calling 파라미터 추가
+    if (isInsuranceQuery) {
+      requestBody.functions = FUNCTIONS
+      requestBody.function_call = 'auto'
+    }
+
     const response = await fetch(OPENAI_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
-      body: JSON.stringify({
-        model: 'gpt-3.5-turbo',
-        messages: messages,
-        functions: FUNCTIONS, // Function Calling 활성화
-        function_call: 'auto',
-        temperature: 0.7,
-        max_tokens: 1000,
-        stream: true // 스트리밍 활성화
-      })
+      body: JSON.stringify(requestBody)
     })
 
     if (!response.ok) {
@@ -275,10 +365,45 @@ export async function sendMessageToGPTStream(message, conversationHistory = [], 
 
     // Function Call 응답 반환
     if (isFunctionCall) {
-      return {
-        type: 'function_call',
-        functionName,
-        functionArgs: JSON.parse(functionArgs)
+      try {
+        console.log('Function name:', functionName)
+        console.log('Function arguments to parse:', functionArgs)
+        console.log('Function arguments length:', functionArgs.length)
+        console.log('Function arguments (first 100 chars):', functionArgs.substring(0, 100))
+
+        // 빈 문자열 체크
+        if (!functionArgs || functionArgs.trim() === '') {
+          console.warn('Function arguments is empty, using empty object')
+          return {
+            type: 'function_call',
+            functionName,
+            functionArgs: {}
+          }
+        }
+
+        // JSON 파싱 시도
+        const parsedArgs = JSON.parse(functionArgs)
+
+        return {
+          type: 'function_call',
+          functionName,
+          functionArgs: parsedArgs
+        }
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError)
+        console.error('Function name:', functionName)
+        console.error('Function arguments (full):', functionArgs)
+        console.error('Function arguments (char codes at position 30-40):',
+          Array.from(functionArgs.substring(30, 40)).map(c => `${c}(${c.charCodeAt(0)})`).join(' '))
+
+        // 더 자세한 에러 메시지
+        throw new Error(
+          `Function arguments 파싱 실패\n` +
+          `함수: ${functionName}\n` +
+          `에러: ${parseError.message}\n` +
+          `위치: ${parseError.message.match(/position (\d+)/) ? parseError.message.match(/position (\d+)/)[1] : 'unknown'}\n` +
+          `원본 (처음 200자): ${functionArgs.substring(0, 200)}`
+        )
       }
     }
 
@@ -291,5 +416,145 @@ export async function sendMessageToGPTStream(message, conversationHistory = [], 
   } catch (error) {
     console.error('OpenAI Streaming API 에러:', error)
     throw error
+  }
+}
+
+/**
+ * OpenAI TTS (Text-to-Speech) API 호출
+ * @param {string} text - 음성으로 변환할 텍스트
+ * @param {string} apiKey - OpenAI API 키
+ * @param {Object} options - TTS 옵션
+ * @param {string} options.voice - 음성 종류 (alloy, echo, fable, onyx, nova, shimmer)
+ * @param {string} options.model - 모델 (tts-1, tts-1-hd)
+ * @param {number} options.speed - 속도 (0.25 ~ 4.0, 기본 1.0)
+ * @returns {Promise<Blob>} 음성 파일 Blob
+ */
+export async function generateSpeech(text, apiKey, options = {}) {
+  if (!apiKey) {
+    throw new Error('API 키가 설정되지 않았습니다.')
+  }
+
+  const {
+    voice = 'alloy', // 기본 음성
+    model = 'tts-1', // tts-1-hd는 더 고품질이지만 느림
+    speed = 0.9 // 약간 느리게 (명확하게)
+  } = options
+
+  try {
+    const response = await fetch(OPENAI_TTS_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model,
+        input: text,
+        voice,
+        speed,
+        response_format: 'mp3' // mp3, opus, aac, flac
+      })
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error?.message || 'TTS API 호출에 실패했습니다.')
+    }
+
+    // 오디오 데이터를 Blob으로 반환
+    const audioBlob = await response.blob()
+    return audioBlob
+
+  } catch (error) {
+    console.error('OpenAI TTS API 에러:', error)
+    throw error
+  }
+}
+
+/**
+ * 언어 코드에 따라 적절한 음성 선택
+ * @param {string} languageCode - 언어 코드 (en, ko, ja, es, fr 등)
+ * @returns {string} 음성 이름
+ */
+export function getVoiceForLanguage(languageCode) {
+  const voiceMap = {
+    en: 'alloy',   // 영어 - 중성적이고 명확한 음성
+    ko: 'nova',    // 한국어 - 여성 음성 (부드러움)
+    ja: 'shimmer', // 일본어 - 여성 음성 (밝음)
+    es: 'echo',    // 스페인어 - 남성 음성 (안정적)
+    fr: 'fable'    // 프랑스어 - 영국 억양 (우아함)
+  }
+
+  return voiceMap[languageCode] || 'alloy'
+}
+
+/**
+ * 텍스트를 대상 언어로 번역
+ * @param {string} text - 번역할 텍스트
+ * @param {string} targetLang - 대상 언어 코드 (en, ko, ja, es, fr)
+ * @param {string} apiKey - OpenAI API 키
+ * @returns {Promise<string>} 번역된 텍스트
+ */
+export async function translateText(text, targetLang, apiKey) {
+  if (!apiKey) {
+    throw new Error('API 키가 설정되지 않았습니다.')
+  }
+
+  if (!text || !text.trim()) {
+    return text
+  }
+
+  const languageNames = {
+    en: 'English',
+    ko: 'Korean',
+    ja: 'Japanese',
+    es: 'Spanish',
+    fr: 'French'
+  }
+
+  const targetLanguage = languageNames[targetLang] || 'English'
+
+  try {
+    const response = await fetch(OPENAI_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a professional translator. Translate the given text to ${targetLanguage}. Only return the translated text without any explanations or notes.`
+          },
+          {
+            role: 'user',
+            content: text
+          }
+        ],
+        temperature: 0.3, // 낮은 온도로 정확한 번역
+        max_tokens: 200
+      })
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error?.message || '번역 API 호출에 실패했습니다.')
+    }
+
+    const data = await response.json()
+    const translatedText = data.choices[0]?.message?.content?.trim()
+
+    if (!translatedText) {
+      throw new Error('번역 결과를 받지 못했습니다.')
+    }
+
+    return translatedText
+
+  } catch (error) {
+    console.error('Translation API 에러:', error)
+    // 번역 실패 시 원본 텍스트 반환
+    return text
   }
 }

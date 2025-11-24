@@ -3,6 +3,7 @@ import { sendMessageToGPT, sendMessageToGPTStream } from '../services/openai.js'
 import { searchPlace } from '../services/placeService.js'
 import { MessageType, SenderType } from '../types/message.js'
 import { CLAIM_DOCUMENTS } from '../data/claimDocuments.js'
+import { isClaimScenario } from '../services/ragService.js'
 
 /**
  * ChatGPT 연동 채팅 composable
@@ -114,6 +115,133 @@ export function useChat() {
     }
     messages.value.push(userMessage)
 
+    // 사고 시나리오 감지 (우선 처리)
+    const claimCheck = isClaimScenario(text)
+
+    // 사고 시나리오인 경우 바로 청구 프로세스 시작
+    if (claimCheck.isAccident) {
+      isLoading.value = true
+
+      // 간단한 물품 추출 로직
+      let item = null
+      const itemKeywords = ['휴대폰', '핸드폰', '스마트폰', '폰', '아이패드', '아이폰', '맥북', '노트북', '태블릿', '지갑', '여권', '가방', '카메라', '시계', '안경', '캐리어']
+      for (const keyword of itemKeywords) {
+        if (text.includes(keyword)) {
+          item = keyword
+          break
+        }
+      }
+
+      // 간단한 증상 추출 로직
+      let symptom = null
+      const symptomKeywords = ['발목', '손목', '머리', '배', '다리', '팔', '열', '복통', '구토', '설사', '골절', '삠']
+      for (const keyword of symptomKeywords) {
+        if (text.includes(keyword)) {
+          symptom = keyword
+          break
+        }
+      }
+
+      // classifyAccident 함수 호출과 동일한 로직 실행
+      const coverageType = claimCheck.type
+
+      // 1. 공감 메시지
+      let empathyMessage = ''
+      if (coverageType === 'personal_belongings') {
+        empathyMessage = `${item ? item + '을(를)' : '휴대품을'} 잃으셨군요. 정말 난감하시겠어요. 😢\n\n걱정하지 마세요. 차근차근 안내해 드릴게요!`
+      } else if (coverageType === 'overseas_medical') {
+        empathyMessage = `${symptom ? symptom + '(으)로' : ''} 아프셨다니 걱정이네요. 😢\n\n빠른 쾌유를 바라며, 보험금 청구 절차를 친절하게 안내해 드리겠습니다.`
+      } else {
+        empathyMessage = '네, 상황을 확인했습니다.\n\n필요하신 절차를 하나씩 안내해 드릴게요.'
+      }
+
+      // 공감 메시지 - 2초 딜레이
+      setTimeout(() => {
+        const empathyTextMessage = {
+          id: messageIdCounter++,
+          type: MessageType.TEXT,
+          sender: SenderType.BOT,
+          content: empathyMessage,
+          timestamp: Date.now()
+        }
+        messages.value.push(empathyTextMessage)
+      }, 2000)
+
+      // 2. 보장 확인 메시지 - 4초 딜레이 (공감 메시지 2초 후)
+      if (coverageType !== 'unknown' && CLAIM_DOCUMENTS[coverageType]) {
+        setTimeout(() => {
+          // 보장 정보
+          const coverageInfo = {
+            'personal_belongings': {
+              title: '휴대품 손해',
+              coverage: '최대 100만원',
+              deductible: '자기부담금 없음',
+              description: '도난, 분실, 파손된 휴대품에 대해 보장합니다.'
+            },
+            'overseas_medical': {
+              title: '해외 의료비',
+              coverage: '최대 3,000만원',
+              deductible: '건당 2만원',
+              description: '해외 여행 중 질병 또는 상해로 인한 의료비를 보장합니다.'
+            }
+          }
+
+          const info = coverageInfo[coverageType] || {
+            title: '보험 보장',
+            coverage: '약관에 따라 보장',
+            deductible: '약관 확인 필요',
+            description: '해당 사고에 대해 보장이 가능합니다.'
+          }
+
+          const coverageMessage = {
+            id: messageIdCounter++,
+            type: MessageType.TEXT,
+            sender: SenderType.BOT,
+            content: `✅ **보장 확인 완료**\n\n📋 **${info.title}**\n💰 보장 한도: ${info.coverage}\n🔸 자기부담금: ${info.deductible}\n\n${info.description}`,
+            timestamp: Date.now()
+          }
+          messages.value.push(coverageMessage)
+
+          // 3. 서류 안내 확인 버튼 - 2초 후
+          setTimeout(() => {
+            const documentConfirmMessage = {
+              id: messageIdCounter++,
+              type: MessageType.ACTION_BUTTONS,
+              sender: SenderType.BOT,
+              content: {
+                message: '필요 서류를 안내해드릴까요?',
+                actions: [
+                  {
+                    label: '✅ 네, 서류 안내 받기',
+                    icon: '📋',
+                    action: 'confirm_document_guide',
+                    style: 'primary',
+                    data: {
+                      coverageType: coverageType,
+                      needPolice: coverageType === 'personal_belongings',
+                      needHospital: coverageType === 'overseas_medical'
+                    }
+                  },
+                  {
+                    label: '상담원과 통화하기',
+                    icon: '☎️',
+                    action: 'call_agent',
+                    style: 'secondary'
+                  }
+                ]
+              },
+              timestamp: Date.now()
+            }
+            messages.value.push(documentConfirmMessage)
+          }, 2000)
+        }, 4000)
+      }
+
+      isLoading.value = false
+      return
+    }
+
+    // 사고 시나리오가 아닌 경우 기존 로직 진행
     // 빈 AI 메시지 생성 (실시간으로 채워짐)
     const botMessageId = messageIdCounter++
     const botMessage = {
@@ -130,19 +258,32 @@ export function useChat() {
     try {
       const conversationHistory = getConversationHistory()
 
-      // 스트리밍으로 응답 받기
-      const response = await sendMessageToGPTStream(
-        text,
-        conversationHistory,
-        apiKey,
-        (chunk) => {
-          // 실시간으로 메시지 내용 업데이트 (Vue 반응성 보장)
-          const messageIndex = messages.value.findIndex(m => m.id === botMessageId)
-          if (messageIndex !== -1) {
-            messages.value[messageIndex].content += chunk
+      // 먼저 non-streaming으로 응답 받기 (function call 감지용)
+      const initialResponse = await sendMessageToGPT(text, conversationHistory, apiKey)
+
+      // Function call인 경우 바로 처리
+      let response
+      if (initialResponse.type === 'function_call') {
+        response = initialResponse
+      } else {
+        // 일반 텍스트 응답인 경우 스트리밍 효과 시뮬레이션
+        const fullText = initialResponse.content
+        const messageIndex = messages.value.findIndex(m => m.id === botMessageId)
+
+        // 타이핑 효과를 위해 한 글자씩 추가
+        let currentIndex = 0
+        const typingInterval = setInterval(() => {
+          if (currentIndex < fullText.length && messageIndex !== -1) {
+            const chunkSize = Math.min(3, fullText.length - currentIndex) // 한번에 3글자씩
+            messages.value[messageIndex].content += fullText.substring(currentIndex, currentIndex + chunkSize)
+            currentIndex += chunkSize
+          } else {
+            clearInterval(typingInterval)
           }
-        }
-      )
+        }, 30) // 30ms마다 3글자씩
+
+        response = { type: 'text', content: fullText }
+      }
 
       // Function Call 응답 처리
       if (response.type === 'function_call') {
@@ -164,51 +305,86 @@ export function useChat() {
             empathyMessage = '네, 상황을 확인했습니다.\n\n필요하신 절차를 하나씩 안내해 드릴게요.'
           }
 
-          const empathyTextMessage = {
-            id: messageIdCounter++,
-            type: MessageType.TEXT,
-            sender: SenderType.BOT,
-            content: empathyMessage,
-            timestamp: Date.now()
-          }
-          messages.value.push(empathyTextMessage)
+          // 공감 메시지 - 2초 딜레이
+          setTimeout(() => {
+            const empathyTextMessage = {
+              id: messageIdCounter++,
+              type: MessageType.TEXT,
+              sender: SenderType.BOT,
+              content: empathyMessage,
+              timestamp: Date.now()
+            }
+            messages.value.push(empathyTextMessage)
+          }, 2000)
 
-          // 2. 서류 선택 버튼 - 0.8초 딜레이
+          // 2. 보장 확인 메시지 - 4초 딜레이 (공감 메시지 2초 후)
           if (coverageType !== 'unknown' && CLAIM_DOCUMENTS[coverageType]) {
             setTimeout(() => {
-              const documentSelectionMessage = {
-                id: messageIdCounter++,
-                type: MessageType.ACTION_BUTTONS,
-                sender: SenderType.BOT,
-                content: {
-                  message: '어떤 서류를 안내해드릴까요?',
-                  actions: [
-                    {
-                      label: '꼭 준비해야하는 서류 (현지)',
-                      icon: '📋',
-                      action: 'show_overseas_docs',
-                      style: 'primary',
-                      data: {
-                        coverageType: coverageType,
-                        needPolice: args.needPolice || false,
-                        needHospital: args.needHospital || false
-                      }
-                    },
-                    {
-                      label: '귀국 후 준비할 서류',
-                      icon: '🏠',
-                      action: 'show_home_docs',
-                      style: 'info',
-                      data: {
-                        coverageType: coverageType
-                      }
-                    }
-                  ]
+              // 보장 정보
+              const coverageInfo = {
+                'personal_belongings': {
+                  title: '휴대품 손해',
+                  coverage: '최대 100만원',
+                  deductible: '자기부담금 없음',
+                  description: '도난, 분실, 파손된 휴대품에 대해 보장합니다.'
                 },
+                'overseas_medical': {
+                  title: '해외 의료비',
+                  coverage: '최대 3,000만원',
+                  deductible: '건당 2만원',
+                  description: '해외 여행 중 질병 또는 상해로 인한 의료비를 보장합니다.'
+                }
+              }
+
+              const info = coverageInfo[coverageType] || {
+                title: '보험 보장',
+                coverage: '약관에 따라 보장',
+                deductible: '약관 확인 필요',
+                description: '해당 사고에 대해 보장이 가능합니다.'
+              }
+
+              const coverageMessage = {
+                id: messageIdCounter++,
+                type: MessageType.TEXT,
+                sender: SenderType.BOT,
+                content: `✅ **보장 확인 완료**\n\n📋 **${info.title}**\n💰 보장 한도: ${info.coverage}\n🔸 자기부담금: ${info.deductible}\n\n${info.description}`,
                 timestamp: Date.now()
               }
-              messages.value.push(documentSelectionMessage)
-            }, 800)
+              messages.value.push(coverageMessage)
+
+              // 3. 서류 안내 확인 버튼 - 2초 후
+              setTimeout(() => {
+                const documentConfirmMessage = {
+                  id: messageIdCounter++,
+                  type: MessageType.ACTION_BUTTONS,
+                  sender: SenderType.BOT,
+                  content: {
+                    message: '필요 서류를 안내해드릴까요?',
+                    actions: [
+                      {
+                        label: '✅ 네, 서류 안내 받기',
+                        icon: '📋',
+                        action: 'confirm_document_guide',
+                        style: 'primary',
+                        data: {
+                          coverageType: coverageType,
+                          needPolice: args.needPolice || false,
+                          needHospital: args.needHospital || false
+                        }
+                      },
+                      {
+                        label: '상담원과 통화하기',
+                        icon: '☎️',
+                        action: 'call_agent',
+                        style: 'secondary'
+                      }
+                    ]
+                  },
+                  timestamp: Date.now()
+                }
+                messages.value.push(documentConfirmMessage)
+              }, 2000)
+            }, 4000)
           } else {
             // 담보 타입을 파악하지 못한 경우
             setTimeout(() => {
