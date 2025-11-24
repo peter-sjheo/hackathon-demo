@@ -96,9 +96,11 @@ const GOOGLE_PLACE_TYPE_MAP = {
  * @param {string} params.placeType - 장소 타입
  * @param {string} params.name - 특정 장소 이름 (선택)
  * @param {boolean} params.useCurrentLocation - 현재 위치 사용 여부
- * @returns {Promise<Object>} 장소 정보
+ * @param {number} params.resultIndex - 검색 결과 인덱스 (기본값: 0, 첫 번째 결과)
+ * @param {Array} params.cachedResults - 캐시된 검색 결과 (이미 검색한 경우 재사용)
+ * @returns {Promise<Object>} 장소 정보 { name, lat, lng, address, placeType, zoom, allResults?, currentIndex? }
  */
-export async function searchPlace({ placeType, name, useCurrentLocation }) {
+export async function searchPlace({ placeType, name, useCurrentLocation, resultIndex = 0, cachedResults = null }) {
   try {
     // Google Maps API 로드
     await loadGoogleMaps()
@@ -134,28 +136,63 @@ export async function searchPlace({ placeType, name, useCurrentLocation }) {
 
       service.nearbySearch(request, (results, status) => {
         if (status === window.google.maps.places.PlacesServiceStatus.OK && results && results.length > 0) {
-          // 첫 번째 결과 선택
-          const place = results[0]
+          // 캐시된 결과가 있으면 사용, 없으면 새로 받은 결과 사용
+          const searchResults = cachedResults || results
+          const index = cachedResults ? resultIndex : 0
+          
+          // 인덱스 유효성 확인
+          if (index >= searchResults.length) {
+            reject(new Error(`검색 결과 인덱스(${index})가 범위를 초과했습니다. (총 ${searchResults.length}개 결과)`))
+            return
+          }
+
+          // 해당 인덱스의 결과 선택
+          const place = searchResults[index]
           const placeTypeName = PLACE_TYPE_NAMES[placeType] || placeType
 
-          resolve({
+          // 결과 객체 변환 (Google Places API 형식 → 우리 형식)
+          const formatPlace = (place) => ({
             name: place.name,
-            lat: place.geometry.location.lat(),
-            lng: place.geometry.location.lng(),
-            address: place.vicinity || place.formatted_address || '',
-            placeType: placeTypeName,
-            zoom: 15
+            lat: place.geometry.location.lat ? place.geometry.location.lat() : place.geometry.location.lat,
+            lng: place.geometry.location.lng ? place.geometry.location.lng() : place.geometry.location.lng,
+            address: place.vicinity || place.formatted_address || place.address || '',
+            placeType: placeTypeName, // 한글 이름 (화면 표시용)
+            placeTypeRaw: placeType, // 원본 영어 타입 (다음 검색을 위해 저장)
+            zoom: 15,
+            // 전체 결과와 현재 인덱스 포함 (다음 결과를 위해)
+            allResults: searchResults.map(p => ({
+              name: p.name,
+              lat: p.geometry.location.lat ? p.geometry.location.lat() : p.geometry.location.lat,
+              lng: p.geometry.location.lng ? p.geometry.location.lng() : p.geometry.location.lng,
+              address: p.vicinity || p.formatted_address || p.address || ''
+            })),
+            currentIndex: index
           })
+
+          resolve(formatPlace(place))
         } else if (status === window.google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
           // 결과가 없으면 데모 데이터 사용
           console.warn(`${placeType} 검색 결과가 없어 데모 데이터를 사용합니다.`)
           const demoPlaces = DEMO_PLACES[placeType] || []
           if (demoPlaces.length > 0) {
             const placeTypeName = PLACE_TYPE_NAMES[placeType] || placeType
+            const index = cachedResults ? resultIndex : 0
+            
+            // 인덱스 유효성 확인
+            if (index >= demoPlaces.length) {
+              reject(new Error(`데모 데이터 인덱스(${index})가 범위를 초과했습니다. (총 ${demoPlaces.length}개 결과)`))
+              return
+            }
+
+            const selectedPlace = demoPlaces[index]
             resolve({
-              ...demoPlaces[0],
-              placeType: placeTypeName,
-              zoom: 15
+              ...selectedPlace,
+              placeType: placeTypeName, // 한글 이름
+              placeTypeRaw: placeType, // 원본 영어 타입
+              zoom: 15,
+              // 전체 데모 결과와 현재 인덱스 포함
+              allResults: demoPlaces,
+              currentIndex: index
             })
           } else {
             reject(new Error(`${placeType}에 대한 장소를 찾을 수 없습니다.`))
@@ -171,10 +208,22 @@ export async function searchPlace({ placeType, name, useCurrentLocation }) {
     const demoPlaces = DEMO_PLACES[placeType] || []
     if (demoPlaces.length > 0) {
       const placeTypeName = PLACE_TYPE_NAMES[placeType] || placeType
+      const index = resultIndex || 0
+      
+      // 인덱스 유효성 확인
+      if (index >= demoPlaces.length) {
+        throw new Error(`데모 데이터 인덱스(${index})가 범위를 초과했습니다. (총 ${demoPlaces.length}개 결과)`)
+      }
+
+      const selectedPlace = demoPlaces[index]
       return {
-        ...demoPlaces[0],
-        placeType: placeTypeName,
-        zoom: 15
+        ...selectedPlace,
+        placeType: placeTypeName, // 한글 이름
+        placeTypeRaw: placeType, // 원본 영어 타입
+        zoom: 15,
+        // 전체 데모 결과와 현재 인덱스 포함
+        allResults: demoPlaces,
+        currentIndex: index
       }
     }
     throw error

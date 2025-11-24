@@ -84,6 +84,8 @@ import { ref, nextTick, watch } from 'vue'
 import MessageItem from './MessageItem.vue'
 import { useChat } from '../../composables/useChat.js'
 import { CLAIM_DOCUMENTS } from '../../data/claimDocuments.js'
+import { MessageType } from '../../types/message.js'
+import { searchPlace } from '../../services/placeService.js'
 
 // 상수 정의
 const CONSTANTS = {
@@ -114,7 +116,8 @@ const scriptInfoCollection = ref({
   coverageType: null, // 'personal_belongings' or 'overseas_medical'
   currentQuestion: null, // 현재 질문 필드
   collectedData: {}, // 수집된 정보
-  questionsQueue: [] // 남은 질문들
+  questionsQueue: [], // 남은 질문들
+  originalAccidentDescription: '' // 원본 사고 내용 저장
 })
 
 // 유틸리티 함수: 딜레이 후 메시지 추가
@@ -161,7 +164,8 @@ const generatePersonalizedScript = async () => {
     content: {
       institutionType: scriptInfoCollection.value.scriptType,
       defaultLanguage: 'en',
-      personalizedData: scriptInfoCollection.value.collectedData // 수집된 정보 전달
+      personalizedData: scriptInfoCollection.value.collectedData, // 수집된 정보 전달
+      originalAccidentDescription: scriptInfoCollection.value.originalAccidentDescription // 원본 사고 내용 전달
     },
     timestamp: Date.now()
   }
@@ -283,81 +287,218 @@ const handleActionClick = async (actionData) => {
   // 각 액션 타입에 따른 처리
   switch (type) {
     case 'search_police':
-      // "주변 경찰서 찾기" -> GPT에 전달하여 실제 경찰서 검색
-      await sendMessageStream('주변 경찰서를 찾아주세요')
+    case 'search_hospital':
+      // "주변 경찰서/병원 찾기" -> 직접 장소 검색
+      {
+        const placeTypeForSearch = type === 'search_police' ? 'police' : 'hospital'
+        const placeType = type === 'search_police' ? '경찰서' : '병원'
+        
+        try {
+          // 장소 검색 직접 호출
+          const placeData = await searchPlace({
+            placeType: placeTypeForSearch,
+            useCurrentLocation: true
+          })
 
-      // 3초 후 확인 메시지 표시 (스크립트 버튼 바로 표시하지 않음)
-      setTimeout(async () => {
-        const confirmMessage = {
-          id: Date.now(),
-          type: 'action_buttons',
-          sender: 'bot',
-          content: {
-            message: '찾으신 경찰서가 도움이 되셨나요?',
-            actions: [
-              {
-                label: '✅ 네, 여기로 갈게요',
-                icon: '👍',
-                action: 'confirm_police_location',
-                style: 'primary',
-                data: actionData.data || {} // coverageType 전달
+          // 지도 메시지 생성
+          const mapMessage = {
+            id: Date.now(),
+            type: MessageType.MAP,
+            sender: 'bot',
+            content: {
+              lat: placeData.lat,
+              lng: placeData.lng,
+              address: `${placeData.placeType}: ${placeData.name}\n${placeData.address}`,
+              zoom: placeData.zoom || 15,
+              allResults: placeData.allResults || [],
+              currentIndex: placeData.currentIndex !== undefined ? placeData.currentIndex : 0,
+              placeType: placeTypeForSearch,
+              useCurrentLocation: true
+            },
+            timestamp: Date.now()
+          }
+          messages.value.push(mapMessage)
+          await scrollToBottom()
+
+          // 3초 후 확인 메시지 표시
+          setTimeout(async () => {
+            const confirmMessage = {
+              id: Date.now(),
+              type: 'action_buttons',
+              sender: 'bot',
+              content: {
+                message: `찾으신 ${placeType}이(가) 도움이 되셨나요?`,
+                actions: [
+                  {
+                    label: `✅ 네, 여기로 갈게요`,
+                    icon: '👍',
+                    action: type === 'search_police' ? 'confirm_police_location' : 'confirm_hospital_location',
+                    style: 'primary',
+                    data: actionData.data || {}
+                  },
+                  {
+                    label: `다른 ${placeType}을(를) 찾아주세요`,
+                    icon: '🔍',
+                    action: type === 'search_police' ? 'search_next_police' : 'search_next_hospital',
+                    style: 'secondary',
+                    data: actionData.data || {}
+                  }
+                ]
               },
-              {
-                label: '다른 경찰서를 찾아주세요',
-                icon: '🔍',
-                action: 'search_police',
-                style: 'secondary',
-                data: actionData.data || {}
-              }
-            ]
-          },
-          timestamp: Date.now()
+              timestamp: Date.now()
+            }
+            messages.value.push(confirmMessage)
+            await scrollToBottom()
+          }, 3000)
+        } catch (error) {
+          // 장소 검색 실패 시 에러 메시지
+          const errorMessage = {
+            id: Date.now(),
+            type: MessageType.TEXT,
+            sender: 'bot',
+            content: `⚠️ ${placeType}를 찾을 수 없습니다: ${error.message}\n\n다시 시도해주시거나 직접 검색해주세요.`,
+            timestamp: Date.now()
+          }
+          messages.value.push(errorMessage)
+          await scrollToBottom()
         }
-        messages.value.push(confirmMessage)
-        await scrollToBottom()
-      }, 3000)
+      }
       break
 
-    case 'search_hospital':
-      // "주변 병원 찾기" -> GPT에 자연어로 전달하여 searchPlace 함수 호출 유도
-      await sendMessageStream('주변 병원을 찾아주세요')
+    case 'search_next_police':
+    case 'search_next_hospital':
+      // "다른 경찰서/병원 찾기" -> 저장된 검색 결과에서 다음 인덱스 사용
+      {
+        const placeTypeForSearch = type === 'search_next_police' ? 'police' : 'hospital'
+        const placeTypeKorean = type === 'search_next_police' ? '경찰서' : '병원'
+        
+        // 이전 지도 메시지 찾기 (가장 최근 것)
+        const previousMapMessage = [...messages.value]
+          .reverse()
+          .find(msg => msg.type === MessageType.MAP && 
+                msg.content?.placeType === placeTypeForSearch)
 
-      // 3초 후 확인 메시지 표시 (스크립트 버튼 바로 표시하지 않음)
-      setTimeout(async () => {
-        const confirmMessage = {
+        if (!previousMapMessage || !previousMapMessage.content.allResults) {
+          // 이전 검색 결과가 없으면 새로 검색
+          const searchMessage = type === 'search_next_police' ? '주변 경찰서를 찾아주세요' : '주변 병원을 찾아주세요'
+          await sendMessageStream(searchMessage)
+          
+          setTimeout(async () => {
+            const confirmMessage = {
+              id: Date.now(),
+              type: 'action_buttons',
+              sender: 'bot',
+              content: {
+                message: `찾으신 ${placeTypeKorean}이(가) 도움이 되셨나요?`,
+                actions: [
+                  {
+                    label: `✅ 네, 여기로 갈게요`,
+                    icon: '👍',
+                    action: type === 'search_next_police' ? 'confirm_police_location' : 'confirm_hospital_location',
+                    style: 'primary',
+                    data: actionData.data || {}
+                  },
+                  {
+                    label: `다른 ${placeTypeKorean}을(를) 찾아주세요`,
+                    icon: '🔍',
+                    action: type === 'search_next_police' ? 'search_next_police' : 'search_next_hospital',
+                    style: 'secondary',
+                    data: actionData.data || {}
+                  }
+                ]
+              },
+              timestamp: Date.now()
+            }
+            messages.value.push(confirmMessage)
+            await scrollToBottom()
+          }, 3000)
+          break
+        }
+
+        // 다음 인덱스 계산
+        const currentIndex = previousMapMessage.content.currentIndex || 0
+        const allResults = previousMapMessage.content.allResults || []
+        const nextIndex = currentIndex + 1
+
+        // 다음 결과가 있는지 확인
+        if (nextIndex >= allResults.length) {
+          const errorMessage = {
+            id: Date.now(),
+            type: 'text',
+            sender: 'bot',
+            content: `죄송합니다. 더 이상 찾을 수 있는 ${placeTypeKorean}이(가) 없습니다.`,
+            timestamp: Date.now()
+          }
+          messages.value.push(errorMessage)
+          await scrollToBottom()
+          break
+        }
+
+        // 다음 결과 가져오기
+        const nextPlace = allResults[nextIndex]
+        const placeTypeName = type === 'search_next_police' ? '경찰서' : '병원'
+
+        // 새로운 지도 메시지 생성
+        const newMapMessage = {
           id: Date.now(),
-          type: 'action_buttons',
+          type: MessageType.MAP,
           sender: 'bot',
           content: {
-            message: '찾으신 병원이 도움이 되셨나요?',
-            actions: [
-              {
-                label: '✅ 네, 여기로 갈게요',
-                icon: '👍',
-                action: 'confirm_hospital_location',
-                style: 'primary',
-                data: actionData.data || {} // coverageType 전달
-              },
-              {
-                label: '다른 병원을 찾아주세요',
-                icon: '🔍',
-                action: 'search_hospital',
-                style: 'secondary',
-                data: actionData.data || {}
-              }
-            ]
+            lat: nextPlace.lat,
+            lng: nextPlace.lng,
+            address: `${placeTypeName}: ${nextPlace.name}\n${nextPlace.address}`,
+            zoom: 15,
+            // 검색 결과 전체와 새로운 인덱스 저장
+            allResults: allResults,
+            currentIndex: nextIndex,
+            placeType: placeTypeForSearch,
+            useCurrentLocation: previousMapMessage.content.useCurrentLocation || false
           },
           timestamp: Date.now()
         }
-        messages.value.push(confirmMessage)
+        messages.value.push(newMapMessage)
         await scrollToBottom()
-      }, 3000)
+
+        // 3초 후 확인 메시지 표시
+        setTimeout(async () => {
+          const confirmMessage = {
+            id: Date.now(),
+            type: 'action_buttons',
+            sender: 'bot',
+            content: {
+              message: `찾으신 ${placeTypeKorean}이(가) 도움이 되셨나요?`,
+              actions: [
+                {
+                  label: `✅ 네, 여기로 갈게요`,
+                  icon: '👍',
+                  action: type === 'search_next_police' ? 'confirm_police_location' : 'confirm_hospital_location',
+                  style: 'primary',
+                  data: actionData.data || {}
+                },
+                {
+                  label: `다른 ${placeTypeKorean}을(를) 찾아주세요`,
+                  icon: '🔍',
+                  action: type === 'search_next_police' ? 'search_next_police' : 'search_next_hospital',
+                  style: 'secondary',
+                  data: actionData.data || {}
+                }
+              ]
+            },
+            timestamp: Date.now()
+          }
+          messages.value.push(confirmMessage)
+          await scrollToBottom()
+        }, 3000)
+      }
       break
 
     case 'confirm_document_guide':
       // "필요 서류를 안내해드릴까요?" 확인 후 서류 선택 버튼 표시
       {
-        const { coverageType, needPolice, needHospital } = actionData.data
+        const { coverageType, needPolice, needHospital, originalAccidentDescription } = actionData.data || {}
+        
+        // 원본 사고 내용 저장
+        scriptInfoCollection.value.originalAccidentDescription = originalAccidentDescription || ''
 
         // 프로그레스 1단계로 업데이트 (보장 확인 완료)
         emit('progressUpdate', 1)
@@ -434,7 +575,12 @@ const handleActionClick = async (actionData) => {
               icon: needPolice ? '🚔' : '🏥',
               action: needPolice ? 'search_police' : 'search_hospital',
               style: 'primary',
-              data: { coverageType, needPolice, needHospital }
+              data: { 
+                coverageType, 
+                needPolice, 
+                needHospital,
+                originalAccidentDescription: scriptInfoCollection.value.originalAccidentDescription 
+              }
             })
           }
 
@@ -727,7 +873,7 @@ const handleActionClick = async (actionData) => {
     case 'show_police_script':
       // 경찰서 스크립트 작성을 위한 정보 수집 시작
       {
-        const { coverageType } = actionData.data || {}
+        const { coverageType, originalAccidentDescription } = actionData.data || {}
 
         const introMessage = {
           id: Date.now(),
@@ -751,7 +897,8 @@ const handleActionClick = async (actionData) => {
             { field: 'date', question: '언제 발생했나요?\n\n예시: 2024년 1월 15일' },
             { field: 'time', question: '몇 시경에 발생했나요?\n\n예시: 오후 3시경, 14:00경' },
             { field: 'location', question: '어디에서 발생했나요?\n\n예시: 에펠탑 근처 카페, 호텔 로비' }
-          ]
+          ],
+          originalAccidentDescription: originalAccidentDescription || scriptInfoCollection.value.originalAccidentDescription || '' // 원본 사고 내용 저장
         }
 
         // 첫 번째 질문 시작 (2초 후)
@@ -764,7 +911,7 @@ const handleActionClick = async (actionData) => {
     case 'show_hospital_script':
       // 병원 스크립트 작성을 위한 정보 수집 시작
       {
-        const { coverageType } = actionData.data || {}
+        const { coverageType, originalAccidentDescription } = actionData.data || {}
 
         const introMessage = {
           id: Date.now(),
@@ -787,7 +934,8 @@ const handleActionClick = async (actionData) => {
             { field: 'symptoms', question: '어떤 증상이 있으신가요?\n\n예시: 발목 삠, 고열과 두통, 복통' },
             { field: 'date', question: '언제부터 증상이 시작되었나요?\n\n예시: 어제 오후부터, 2024년 1월 15일' },
             { field: 'time', question: '몇 시경인가요?\n\n예시: 오후 3시경, 14:00경' }
-          ]
+          ],
+          originalAccidentDescription: originalAccidentDescription || scriptInfoCollection.value.originalAccidentDescription || '' // 원본 사고 내용 저장
         }
 
         // 첫 번째 질문 시작 (2초 후)

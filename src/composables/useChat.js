@@ -219,7 +219,8 @@ export function useChat() {
                     data: {
                       coverageType: coverageType,
                       needPolice: coverageType === 'personal_belongings',
-                      needHospital: coverageType === 'overseas_medical'
+                      needHospital: coverageType === 'overseas_medical',
+                      originalAccidentDescription: text // 원본 사고 내용 저장
                     }
                   },
                   {
@@ -369,7 +370,8 @@ export function useChat() {
                         data: {
                           coverageType: coverageType,
                           needPolice: args.needPolice || false,
-                          needHospital: args.needHospital || false
+                          needHospital: args.needHospital || false,
+                          originalAccidentDescription: text // 원본 사고 내용 저장
                         }
                       },
                       {
@@ -405,7 +407,7 @@ export function useChat() {
           try {
             const placeData = await searchPlace(response.functionArgs)
 
-            // 지도 메시지 생성
+            // 지도 메시지 생성 (검색 결과 전체와 현재 인덱스 포함)
             const mapMessage = {
               id: messageIdCounter++,
               type: MessageType.MAP,
@@ -414,7 +416,12 @@ export function useChat() {
                 lat: placeData.lat,
                 lng: placeData.lng,
                 address: `${placeData.placeType}: ${placeData.name}\n${placeData.address}`,
-                zoom: placeData.zoom
+                zoom: placeData.zoom,
+                // 다음 결과를 위해 검색 결과 전체와 현재 인덱스 저장
+                allResults: placeData.allResults || [],
+                currentIndex: placeData.currentIndex !== undefined ? placeData.currentIndex : 0,
+                placeType: placeData.placeTypeRaw || response.functionArgs.placeType, // 원본 영어 타입 저장 (다음 검색을 위해)
+                useCurrentLocation: response.functionArgs.useCurrentLocation || false
               },
               timestamp: Date.now()
             }

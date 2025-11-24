@@ -20,14 +20,11 @@
           v-for="(doc, index) in content.overseas"
           :key="index"
           class="document-item"
-          :class="{ 'clickable': isClickable(doc) }"
-          @click="handleDocumentClick(doc)"
         >
           <div class="document-name">
             <span class="bullet">{{ index + 1 }}</span>
             {{ doc.name }}
             <span v-if="doc.required" class="required-badge">필수</span>
-            <span v-if="isClickable(doc)" class="action-hint">🔍</span>
           </div>
           <p class="document-description">{{ doc.description }}</p>
         </li>
@@ -45,15 +42,12 @@
           v-for="(doc, index) in content.home"
           :key="index"
           class="document-item"
-          :class="{ 'clickable': isClickable(doc) }"
-          @click="handleDocumentClick(doc)"
         >
           <div class="document-name">
             <span class="bullet">{{ index + 1 }}</span>
             {{ doc.name }}
             <span v-if="doc.required" class="required-badge">필수</span>
             <span v-else class="optional-badge">선택</span>
-            <span v-if="isClickable(doc)" class="action-hint">🔍</span>
           </div>
           <p class="document-description">{{ doc.description }}</p>
         </li>
@@ -92,46 +86,6 @@ const coverageInfo = computed(() => {
 const disclaimer = computed(() => {
   return CLAIM_INFO.disclaimer
 })
-
-// 클릭 가능한 서류인지 판단 (장소 검색과 연관된 서류)
-const isClickable = (doc) => {
-  const clickableKeywords = [
-    'police report',
-    '경찰서',
-    '진단서',
-    'medical record',
-    '병원'
-  ]
-
-  const docName = doc.name.toLowerCase()
-  return clickableKeywords.some(keyword => docName.includes(keyword.toLowerCase()))
-}
-
-// 서류 클릭 핸들러
-const handleDocumentClick = (doc) => {
-  if (!isClickable(doc)) return
-
-  const docName = doc.name.toLowerCase()
-
-  // 서류 이름에 따라 적절한 액션 결정
-  let actionType = null
-
-  if (docName.includes('police') || docName.includes('경찰')) {
-    // 경찰서 관련 서류 - 스크립트 표시
-    actionType = 'show_police_script'
-  } else if (docName.includes('medical') || docName.includes('진단서') || docName.includes('병원')) {
-    // 병원 관련 서류 - 스크립트 표시
-    actionType = 'show_hospital_script'
-  }
-
-  if (actionType) {
-    console.log('📄 서류 클릭:', doc.name, '→', actionType)
-    emit('action', {
-      type: actionType,
-      data: { documentName: doc.name }
-    })
-  }
-}
 </script>
 
 <style scoped>
@@ -224,23 +178,6 @@ const handleDocumentClick = (doc) => {
   margin-bottom: 0;
 }
 
-/* 클릭 가능한 서류 항목 */
-.document-item.clickable {
-  cursor: pointer;
-  position: relative;
-}
-
-.document-item.clickable:hover {
-  background: #e9ecef;
-  border-left-color: #5AB8B8;
-  transform: translateX(4px);
-  box-shadow: 0 2px 8px rgba(112, 48, 160, 0.15);
-}
-
-.document-item.clickable:active {
-  transform: translateX(2px);
-}
-
 .document-name {
   display: flex;
   align-items: center;
@@ -281,17 +218,6 @@ const handleDocumentClick = (doc) => {
   border-radius: 4px;
   font-size: 11px;
   font-weight: 600;
-}
-
-.action-hint {
-  margin-left: auto;
-  font-size: 14px;
-  opacity: 0.6;
-  transition: opacity 0.2s ease;
-}
-
-.document-item.clickable:hover .action-hint {
-  opacity: 1;
 }
 
 .document-description {

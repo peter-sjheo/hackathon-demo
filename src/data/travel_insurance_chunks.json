@@ -1,0 +1,310 @@
+[
+  {
+    "chunk_id": 3,
+    "title": " 치과병원 ",
+    "content": " 한방병원 ",
+    "char_count": 0,
+    "category": "정신병원"
+  },
+  {
+    "chunk_id": 5,
+    "title": " 외국의 무력행사 ",
+    "content": " 혁명",
+    "char_count": 0,
+    "category": "사변"
+  },
+  {
+    "chunk_id": 0,
+    "title": " 글라이더 조종",
+    "content": " 스카이다이빙 ",
+    "char_count": 0,
+    "category": "행글라이딩"
+  },
+  {
+    "chunk_id": 2,
+    "title": " 자동차 또는 오토바이에 의한 경기",
+    "content": " 시범",
+    "char_count": 0,
+    "category": ""
+  },
+  {
+    "chunk_id": 2,
+    "title": " 사망진단서 ",
+    "content": " 장해진단서 ",
+    "char_count": 0,
+    "category": "의사처방전 (처방조제비 ) 등)"
+  },
+  {
+    "chunk_id": 0,
+    "title": " 국가",
+    "content": " 지방자치단체 ",
+    "char_count": 0,
+    "category": "금융회사"
+  },
+  {
+    "chunk_id": 1,
+    "title": " 보험료납입 ",
+    "content": " 보험기간 ",
+    "char_count": 0,
+    "category": "약관의 중요한 내용 등 계약을"
+  },
+  {
+    "chunk_id": 10,
+    "title": " 선박",
+    "content": " 차량(원동력이 인력에 의한 것을 제외합니다 )",
+    "char_count": 0,
+    "category": "사용 또는"
+  },
+  {
+    "chunk_id": 13,
+    "title": " 외국의 무력행사 ",
+    "content": " 혁명",
+    "char_count": 0,
+    "category": "사변"
+  },
+  {
+    "chunk_id": 1,
+    "title": " 유가증권 ",
+    "content": " 인지",
+    "char_count": 0,
+    "category": "신용카드"
+  },
+  {
+    "chunk_id": 2,
+    "title": " 설계서 ",
+    "content": " 도안",
+    "char_count": 0,
+    "category": "모형"
+  },
+  {
+    "chunk_id": 3,
+    "title": " 징발",
+    "content": " 몰수",
+    "char_count": 0,
+    "category": "화재"
+  },
+  {
+    "chunk_id": 5,
+    "title": " 녹",
+    "content": " 곰팡이 ",
+    "char_count": 0,
+    "category": "변색등과 쥐나 벌레로 인한 손해"
+  },
+  {
+    "chunk_id": 4,
+    "title": " 자살",
+    "content": " 자살미수 ",
+    "char_count": 0,
+    "category": "형법상 정당방위"
+  },
+  {
+    "chunk_id": 5,
+    "title": " 외국의 무력행사 ",
+    "content": " 혁명",
+    "char_count": 0,
+    "category": "사변"
+  },
+  {
+    "chunk_id": 1,
+    "title": " 보존",
+    "content": " 금관",
+    "char_count": 0,
+    "category": "의치 및 임플란트로 인한 의료비 ."
+  },
+  {
+    "chunk_id": 0,
+    "title": " 치매요양원 ",
+    "content": " 노인요양원 등에 속해 있는 요양원 ",
+    "char_count": 0,
+    "category": ""
+  },
+  {
+    "chunk_id": 0,
+    "title": " 주사료 ",
+    "content": " 이학요법 (물리치료 ",
+    "char_count": 0,
+    "category": "정신요법료"
+  },
+  {
+    "chunk_id": 4,
+    "title": " 외국의 무력행사 ",
+    "content": " 혁명",
+    "char_count": 0,
+    "category": "사변"
+  },
+  {
+    "chunk_id": 0,
+    "title": " 글라이더 조종",
+    "content": " 스카이다이빙 ",
+    "char_count": 0,
+    "category": "행글라이딩"
+  },
+  {
+    "chunk_id": 0,
+    "title": " 다모",
+    "content": " 무모",
+    "char_count": 0,
+    "category": "딸기코 (주사비 )"
+  },
+  {
+    "chunk_id": 2,
+    "title": " 외국의 무력행사 ",
+    "content": " 혁명",
+    "char_count": 0,
+    "category": "사변"
+  },
+  {
+    "chunk_id": 3,
+    "title": " 분화",
+    "content": " 해일",
+    "char_count": 0,
+    "category": "홍수 또는 이와 비슷한 천재지변【용어정의 】가족이라 함은 피보험자 본인의 배우자"
+  },
+  {
+    "chunk_id": 5,
+    "title": " 외국의 무력행사 ",
+    "content": " 혁명",
+    "char_count": 0,
+    "category": "사변"
+  },
+  {
+    "chunk_id": 0,
+    "title": " 글라이더 조종",
+    "content": " 스카이다이빙 ",
+    "char_count": 0,
+    "category": "행글라이딩"
+  },
+  {
+    "chunk_id": 2,
+    "title": " 자동차 또는 오토바이에 의한 경기",
+    "content": " 시범",
+    "char_count": 0,
+    "category": ""
+  },
+  {
+    "chunk_id": 8,
+    "title": " 외국의 무력행사 ",
+    "content": " 혁명",
+    "char_count": 0,
+    "category": "사변"
+  },
+  {
+    "chunk_id": 0,
+    "title": " 흉기 또는 그 밖의 위험한 물건을 통해 타인의 신체(의수",
+    "content": " 의족",
+    "char_count": 0,
+    "category": ""
+  },
+  {
+    "chunk_id": 5,
+    "title": " 외국의 무력행사 ",
+    "content": " 혁명",
+    "char_count": 0,
+    "category": "사변"
+  },
+  {
+    "chunk_id": 0,
+    "title": " 글라이더 조종",
+    "content": " 스카이다이빙 ",
+    "char_count": 0,
+    "category": "행글라이딩"
+  },
+  {
+    "chunk_id": 2,
+    "title": " 자동차 또는 오토바이에 의한 경기",
+    "content": " 시범",
+    "char_count": 0,
+    "category": "공용"
+  },
+  {
+    "chunk_id": 5,
+    "title": " 외국의 무력행사 ",
+    "content": " 혁명",
+    "char_count": 0,
+    "category": "사변"
+  },
+  {
+    "chunk_id": 0,
+    "title": " 글라이더 조종",
+    "content": " 스카이다이빙 ",
+    "char_count": 0,
+    "category": "행글라이딩"
+  },
+  {
+    "chunk_id": 6,
+    "title": " 자동차 또는 오토바이에 의한 경기",
+    "content": " 시범",
+    "char_count": 0,
+    "category": ""
+  },
+  {
+    "chunk_id": 0,
+    "title": " 복도",
+    "content": " 계단",
+    "char_count": 0,
+    "category": "주차장 등의 공용면적부분은 제외합니다 ."
+  },
+  {
+    "chunk_id": 5,
+    "title": " 여자기 (정류기 포함)",
+    "content": " 변류기 ",
+    "char_count": 0,
+    "category": "전압조정기"
+  },
+  {
+    "chunk_id": 0,
+    "title": " 복도",
+    "content": " 계단",
+    "char_count": 0,
+    "category": "주차장 등의 공용면적부분은 제외합니다 ."
+  },
+  {
+    "chunk_id": 2,
+    "title": " 귀중품 (무게나 부피가 휴대할 수 있으며 점당 300만원 이상)",
+    "content": " 보옥",
+    "char_count": 0,
+    "category": "글"
+  },
+  {
+    "chunk_id": 3,
+    "title": " 설계서 ",
+    "content": " 도안",
+    "char_count": 0,
+    "category": "모형"
+  },
+  {
+    "chunk_id": 2,
+    "title": " 친족",
+    "content": " 고용인 ",
+    "char_count": 0,
+    "category": "숙박인 또는 감수인 (監守人)이 저지르거나 가담한 도난"
+  },
+  {
+    "chunk_id": 0,
+    "title": " 글라이더 조종",
+    "content": " 스카이다이빙 ",
+    "char_count": 0,
+    "category": "행글라이딩을 하는 동안에 보통약관,176,보장내용"
+  },
+  {
+    "chunk_id": 0,
+    "title": " 자동차 또는 오토바이에 의한 경기",
+    "content": " 시범",
+    "char_count": 0,
+    "category": ""
+  },
+  {
+    "chunk_id": 0,
+    "title": " 글라이더 조종",
+    "content": " 스카이다이빙 ",
+    "char_count": 0,
+    "category": "행글라이딩을 하는"
+  },
+  {
+    "chunk_id": 6,
+    "title": " 사업장 ",
+    "content": " 관공서 ",
+    "char_count": 0,
+    "category": "조합 등 5인 이상의 근로자를 고용하고 있는 단체. 다만"
+  }
+]

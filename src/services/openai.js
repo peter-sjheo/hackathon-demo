@@ -558,3 +558,115 @@ export async function translateText(text, targetLang, apiKey) {
     return text
   }
 }
+
+/**
+ * 스크립트 텍스트를 자연스럽게 정돈
+ * @param {string} scriptText - 정돈할 스크립트 텍스트 (플레이스홀더 포함)
+ * @param {Object} personalizedData - 개인화된 데이터 (items, symptoms, date, location 등)
+ * @param {string} institutionType - 기관 타입 ('police' or 'hospital')
+ * @param {string} language - 언어 코드 ('ko', 'en', 'ja', 'es', 'fr')
+ * @param {string} apiKey - OpenAI API 키
+ * @param {string} originalAccidentDescription - 원본 사고 내용 (선택적)
+ * @returns {Promise<string>} 정돈된 스크립트 텍스트
+ */
+export async function refineScript(scriptText, personalizedData, institutionType, language, apiKey, originalAccidentDescription = '') {
+  if (!apiKey) {
+    throw new Error('API 키가 설정되지 않았습니다.')
+  }
+
+  if (!scriptText || !scriptText.trim()) {
+    return scriptText
+  }
+
+  const languageNames = {
+    en: 'English',
+    ko: 'Korean',
+    ja: 'Japanese',
+    es: 'Spanish',
+    fr: 'French'
+  }
+
+  const targetLanguage = languageNames[language] || 'English'
+  const institutionName = institutionType === 'police' ? 'police station' : 'hospital'
+
+  // 개인화 데이터를 설명 텍스트로 변환
+  let dataDescription = ''
+  if (personalizedData) {
+    const dataParts = []
+    if (personalizedData.items) dataParts.push(`Items: ${personalizedData.items}`)
+    if (personalizedData.symptoms) dataParts.push(`Symptoms: ${personalizedData.symptoms}`)
+    if (personalizedData.date) dataParts.push(`Date: ${personalizedData.date}`)
+    if (personalizedData.time) dataParts.push(`Time: ${personalizedData.time}`)
+    if (personalizedData.location) dataParts.push(`Location: ${personalizedData.location}`)
+    dataDescription = dataParts.join(', ')
+  }
+
+  // 프롬프트 구성
+  let userPrompt = `Please refine this script template to make it sound natural and conversational in ${targetLanguage}:\n\n${scriptText}\n\n`
+  
+  if (originalAccidentDescription) {
+    userPrompt += `**Original accident description from the user:** "${originalAccidentDescription}"\n\n`
+    userPrompt += `Use the original description as context to make the script sound more natural and authentic. For example, if the user said "${originalAccidentDescription}", reflect that natural way of speaking in the refined script.\n\n`
+  }
+  
+  if (dataDescription) {
+    userPrompt += `Additional information collected: ${dataDescription}\n\n`
+  }
+  
+  userPrompt += `Replace placeholders with the provided information naturally, and make sure the script sounds like how the person would actually speak based on their original description.`
+
+  try {
+    const response = await fetch(OPENAI_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a professional script writer. Your task is to refine a script template for a traveler to use at a ${institutionName}. 
+
+Make the script sound natural and conversational in ${targetLanguage}. The script should reflect how the person actually speaks based on their original accident description.
+
+Important guidelines:
+- Keep the meaning and intent of the original script
+- Make it sound natural and friendly, matching the user's original speaking style
+- Use the original accident description to understand the user's natural way of expressing themselves
+- Replace placeholders (like [물품 설명], [증상 설명], [날짜], [시간], [장소]) with the provided data naturally
+- Instead of rigid formats like "도난/분실된 물품은 가방입니다", make it more natural like "제 가방을 도난당했습니다" or similar, based on how the user originally described it
+- Do not add extra explanations or notes
+- Return only the refined script text in ${targetLanguage}`
+          },
+          {
+            role: 'user',
+            content: userPrompt
+          }
+        ],
+        temperature: 0.7, // 적절한 온도로 자연스러운 문장 생성
+        max_tokens: 500
+      })
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error?.message || '스크립트 정돈 API 호출에 실패했습니다.')
+    }
+
+    const data = await response.json()
+    const refinedText = data.choices[0]?.message?.content?.trim()
+
+    if (!refinedText) {
+      throw new Error('정돈된 스크립트를 받지 못했습니다.')
+    }
+
+    return refinedText
+
+  } catch (error) {
+    console.error('Script refinement API 에러:', error)
+    // 정돈 실패 시 원본 텍스트 반환
+    return scriptText
+  }
+}
