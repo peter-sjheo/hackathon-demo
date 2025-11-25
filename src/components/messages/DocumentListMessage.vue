@@ -90,7 +90,7 @@ const disclaimer = computed(() => {
 
 <style scoped>
 .document-list-message {
-  max-width: 450px;
+  max-width: 600px;
   background: white;
   border-radius: 12px;
   overflow: hidden;

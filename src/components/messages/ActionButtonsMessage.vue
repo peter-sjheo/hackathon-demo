@@ -56,7 +56,7 @@ const handleClick = (action) => {
 
 <style scoped>
 .action-buttons-message {
-  max-width: 400px;
+  max-width: 600px;
   padding: 16px;
   background: white;
   border-radius: 12px;
